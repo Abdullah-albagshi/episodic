@@ -104,8 +104,10 @@ export default function ProfileScreen() {
             <TimeSegment value={watchTime.hours} unit="Hours" />
           </View>
           <Text className="text-muted text-xs text-center mt-4">
-            ≈ {watchTime.totalHours.toLocaleString()} hours across{" "}
+            {watchTime.estimated ? "≈ " : ""}
+            {watchTime.totalHours.toLocaleString()} hours across{" "}
             {stats.episodesWatched.toLocaleString()} episodes
+            {watchTime.estimated ? "" : " · from TV Time"}
           </Text>
         </View>
 

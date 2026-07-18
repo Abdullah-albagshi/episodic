@@ -10,6 +10,7 @@ import {
   runTvTimeImport,
   type ImportProgress,
   type ImportSummary,
+  type TvTimeFiles,
 } from "./import/tvtime";
 import { getAllEpisodes, getShowDetail, searchShows } from "./tmdb";
 import type { Episode, Show, ShowStatus } from "./types";
@@ -207,9 +208,9 @@ export function useImportTvTime() {
   return useMutation<
     ImportSummary,
     Error,
-    { csv: string; onProgress?: (p: ImportProgress) => void }
+    { files: TvTimeFiles; onProgress?: (p: ImportProgress) => void }
   >({
-    mutationFn: ({ csv, onProgress }) => runTvTimeImport(csv, onProgress),
+    mutationFn: ({ files, onProgress }) => runTvTimeImport(files, onProgress),
     onSuccess: () => invalidateLibrary(client),
   });
 }

@@ -65,6 +65,8 @@ export interface ProfileStats {
     hours: number;
     totalHours: number;
     totalMinutes: number;
+    /** True when derived from a per-episode estimate rather than real runtimes. */
+    estimated: boolean;
   };
   /** Show with the most watched episodes, if any. */
   topShow: { title: string; poster_path: string | null; watched: number } | null;

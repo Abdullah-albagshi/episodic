@@ -110,13 +110,19 @@ export async function getShowDetail(id: number): Promise<TmdbShowDetail> {
 }
 
 /**
- * Fetch every episode for a show (skips "specials" / season 0) and return them
- * as unwatched Episode rows ready to be stored.
+ * Fetch every episode for a show and return them as unwatched Episode rows
+ * ready to be stored. Season 0 ("specials") is skipped unless `includeSpecials`
+ * is set — used by the importer to recover watched specials.
  */
-export async function getAllEpisodes(showId: number): Promise<Episode[]> {
+export async function getAllEpisodes(
+  showId: number,
+  includeSpecials = false
+): Promise<Episode[]> {
   const detail = await getShowDetail(showId);
   const realSeasons = detail.seasons.filter(
-    (s) => s.season_number > 0 && s.episode_count > 0
+    (s) =>
+      (includeSpecials ? s.season_number >= 0 : s.season_number > 0) &&
+      s.episode_count > 0
   );
 
   const episodes: Episode[] = [];

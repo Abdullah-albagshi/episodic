@@ -14,6 +14,9 @@ import type {
  */
 export const AVG_EPISODE_MINUTES = 42;
 
+/** Setting key holding TV Time's exact total watch time (seconds) from import. */
+export const SETTING_TVTIME_RUNTIME_SEC = "tvtime_total_runtime_sec";
+
 /**
  * Storage layer for Episodic.
  *
@@ -497,7 +500,14 @@ export async function getProfileStats(): Promise<ProfileStats> {
     }
   }
 
-  const totalMinutes = episodesWatched * AVG_EPISODE_MINUTES;
+  // Prefer TV Time's exact imported runtime; fall back to a per-episode estimate.
+  const importedRaw = await backend.getSetting(SETTING_TVTIME_RUNTIME_SEC);
+  const importedSeconds = importedRaw ? parseInt(importedRaw, 10) : NaN;
+  const hasExact = Number.isFinite(importedSeconds) && importedSeconds > 0;
+
+  const totalMinutes = hasExact
+    ? Math.round(importedSeconds / 60)
+    : episodesWatched * AVG_EPISODE_MINUTES;
   const totalHours = Math.floor(totalMinutes / 60);
   const months = Math.floor(totalHours / (24 * 30));
   const afterMonths = totalHours - months * 24 * 30;
@@ -510,7 +520,14 @@ export async function getProfileStats(): Promise<ProfileStats> {
     seasonsCompleted,
     totalShows: shows.length,
     showsByStatus,
-    watchTime: { months, days, hours, totalHours, totalMinutes },
+    watchTime: {
+      months,
+      days,
+      hours,
+      totalHours,
+      totalMinutes,
+      estimated: !hasExact,
+    },
     topShow,
     memberSince,
   };
