@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Episodic",
+    "slug": "episodic",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "episodic",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0b0b12"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.episodic.app"
+    },
+    "android": {
+      "package": "com.episodic.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0b12"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}
