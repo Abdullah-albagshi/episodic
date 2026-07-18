@@ -25,17 +25,16 @@ export async function exportBackup(): Promise<string> {
     return `Downloaded ${filename}`;
   }
 
-  const FileSystem = require("expo-file-system");
+  const { File, Paths } = require("expo-file-system");
   const Sharing = require("expo-sharing");
-  const uri = FileSystem.cacheDirectory + filename;
-  await FileSystem.writeAsStringAsync(uri, json, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  const file = new File(Paths.cache, filename);
+  file.create({ overwrite: true });
+  file.write(json);
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: "application/json" });
+    await Sharing.shareAsync(file.uri, { mimeType: "application/json" });
     return "Backup ready to share";
   }
-  return `Saved to ${uri}`;
+  return `Saved to ${file.uri}`;
 }
 
 export async function restoreBackup(json: string): Promise<void> {

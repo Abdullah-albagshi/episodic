@@ -78,7 +78,7 @@ export function ProgressBar({
   return (
     <View className="h-1.5 bg-surface2 rounded-full overflow-hidden w-full">
       <View
-        className="h-full bg-primary rounded-full"
+        className="h-full rounded-full bg-primary"
         style={{ width: `${pct}%` }}
       />
     </View>
@@ -144,28 +144,28 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <View className="flex-1 items-center justify-center px-8 py-16">
-      <View className="w-16 h-16 rounded-2xl bg-surface items-center justify-center mb-4">
+    <View className="items-center justify-center flex-1 px-8 py-16">
+      <View className="items-center justify-center w-16 h-16 mb-4 rounded-2xl bg-surface">
         <Ionicons name={icon} size={30} color="#7c5cff" />
       </View>
-      <Text className="text-text text-lg font-semibold text-center">
+      <Text className="text-lg font-semibold text-center text-text">
         {title}
       </Text>
       {subtitle ? (
-        <Text className="text-muted text-center mt-1 leading-5">
+        <Text className="mt-1 leading-5 text-center text-muted">
           {subtitle}
         </Text>
       ) : null}
-      {action ? <View className="mt-5 w-full max-w-xs">{action}</View> : null}
+      {action ? <View className="w-full max-w-xs mt-5">{action}</View> : null}
     </View>
   );
 }
 
 export function Loading({ label }: { label?: string }) {
   return (
-    <View className="flex-1 items-center justify-center py-16">
+    <View className="items-center justify-center flex-1 py-16">
       <ActivityIndicator color="#7c5cff" />
-      {label ? <Text className="text-muted mt-3">{label}</Text> : null}
+      {label ? <Text className="mt-3 text-muted">{label}</Text> : null}
     </View>
   );
 }
@@ -179,9 +179,9 @@ export function ScreenTitle({
 }) {
   return (
     <View className="px-4 pt-2 pb-4">
-      <Text className="text-text text-3xl font-bold">{title}</Text>
+      <Text className="text-3xl font-bold text-text">{title}</Text>
       {subtitle ? (
-        <Text className="text-muted mt-1">{subtitle}</Text>
+        <Text className="mt-1 text-muted">{subtitle}</Text>
       ) : null}
     </View>
   );

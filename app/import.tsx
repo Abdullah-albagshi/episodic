@@ -25,8 +25,8 @@ async function readAsset(asset: any): Promise<string> {
   if (asset.uri.startsWith("blob:") || asset.uri.startsWith("data:") || asset.file) {
     return await (await fetch(asset.uri)).text();
   }
-  const FileSystem = require("expo-file-system");
-  return await FileSystem.readAsStringAsync(asset.uri);
+  const { File } = require("expo-file-system");
+  return await new File(asset.uri).text();
 }
 
 /**

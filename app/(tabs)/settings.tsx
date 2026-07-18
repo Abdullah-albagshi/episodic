@@ -79,8 +79,8 @@ export default function SettingsScreen() {
       if (asset.uri.startsWith("data:") || asset.uri.startsWith("blob:") || asset.file) {
         text = await (await fetch(asset.uri)).text();
       } else {
-        const FileSystem = require("expo-file-system");
-        text = await FileSystem.readAsStringAsync(asset.uri);
+        const { File } = require("expo-file-system");
+        text = await new File(asset.uri).text();
       }
       restoreBackup.mutate(text, {
         onSuccess: () => setStatus("Backup restored"),
