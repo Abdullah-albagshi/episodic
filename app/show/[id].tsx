@@ -4,7 +4,7 @@ import {
   useNavigation,
   useRouter,
 } from "expo-router";
-import { useLayoutEffect, useMemo } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -35,8 +35,12 @@ import {
 
 interface Section {
   season: number;
+  /** Episodes rendered by the list — empty when the season is collapsed. */
   data: Episode[];
   watched: number;
+  /** Total episodes in the season (independent of collapse state). */
+  total: number;
+  collapsed: boolean;
 }
 
 export default function ShowDetailScreen() {
@@ -78,6 +82,12 @@ export default function ShowDetailScreen() {
 
   const episodes = inLibrary ? dbEpisodes ?? [] : previewEpisodes ?? [];
 
+  // Explicit per-season collapse choices. When a season has no override we fall
+  // back to the default: collapsed once fully watched, expanded otherwise.
+  const [collapseOverrides, setCollapseOverrides] = useState<
+    Record<number, boolean>
+  >({});
+
   const sections: Section[] = useMemo(() => {
     const bySeason = new Map<number, Episode[]>();
     for (const e of episodes) {
@@ -86,12 +96,19 @@ export default function ShowDetailScreen() {
     }
     return [...bySeason.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([season, data]) => ({
-        season,
-        data,
-        watched: data.filter((e) => e.watched_at != null).length,
-      }));
-  }, [episodes]);
+      .map(([season, data]) => {
+        const watched = data.filter((e) => e.watched_at != null).length;
+        const fullyWatched = data.length > 0 && watched === data.length;
+        const collapsed = collapseOverrides[season] ?? fullyWatched;
+        return {
+          season,
+          total: data.length,
+          watched,
+          collapsed,
+          data: collapsed ? [] : data,
+        };
+      });
+  }, [episodes, collapseOverrides]);
 
   const totalWatched = episodes.filter((e) => e.watched_at != null).length;
 
@@ -111,12 +128,19 @@ export default function ShowDetailScreen() {
 
   function onToggleSeason(section: Section) {
     if (!inLibrary) return;
-    const allWatched = section.watched === section.data.length;
+    const allWatched = section.watched === section.total;
     toggleSeason.mutate({
       showId,
       season: section.season,
       watched: !allWatched,
     });
+  }
+
+  function onToggleCollapse(section: Section) {
+    setCollapseOverrides((prev) => ({
+      ...prev,
+      [section.season]: !section.collapsed,
+    }));
   }
 
   function onAdd() {
@@ -165,31 +189,38 @@ export default function ShowDetailScreen() {
         }
         renderSectionHeader={({ section }) => {
           const s = section as unknown as Section;
-          const allWatched = s.watched === s.data.length && s.data.length > 0;
+          const allWatched = s.watched === s.total && s.total > 0;
           return (
             <View className="flex-row items-center justify-between px-4 pt-5 pb-2 bg-bg">
-              <Text className="text-text text-lg font-bold">
-                {s.season === 0 ? "Specials" : `Season ${s.season}`}
-              </Text>
+              <Pressable
+                onPress={() => onToggleCollapse(s)}
+                className="flex-row items-center gap-2 flex-1 active:opacity-70"
+              >
+                <Ionicons
+                  name={s.collapsed ? "chevron-forward" : "chevron-down"}
+                  size={16}
+                  color="#9a9ab0"
+                />
+                <Text className="text-text text-lg font-bold">
+                  {s.season === 0 ? "Specials" : `Season ${s.season}`}
+                </Text>
+                <Text className="text-muted text-sm">
+                  {inLibrary ? `(${s.watched}/${s.total})` : `(${s.total})`}
+                </Text>
+              </Pressable>
               {inLibrary ? (
                 <Pressable
                   onPress={() => onToggleSeason(s)}
-                  className="flex-row items-center gap-1 active:opacity-70"
+                  hitSlop={8}
+                  className="flex-row items-center gap-1 active:opacity-70 pl-2"
                 >
                   <Ionicons
                     name={allWatched ? "checkmark-done-circle" : "ellipse-outline"}
-                    size={18}
+                    size={20}
                     color={allWatched ? "#3ecf8e" : "#9a9ab0"}
                   />
-                  <Text className="text-muted text-xs">
-                    {s.watched}/{s.data.length}
-                  </Text>
                 </Pressable>
-              ) : (
-                <Text className="text-muted text-xs">
-                  {s.data.length} episodes
-                </Text>
-              )}
+              ) : null}
             </View>
           );
         }}
@@ -230,9 +261,11 @@ export default function ShowDetailScreen() {
         }}
         contentContainerStyle={{ paddingBottom: 32 }}
         ListEmptyComponent={
-          <Text className="text-muted text-center px-8 py-10">
-            No episode data available for this show.
-          </Text>
+          episodes.length === 0 ? (
+            <Text className="text-muted text-center px-8 py-10">
+              No episode data available for this show.
+            </Text>
+          ) : null
         }
       />
     </View>
