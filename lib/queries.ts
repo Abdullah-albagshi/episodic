@@ -31,6 +31,7 @@ export const qk = {
   show: (id: number) => ["show", id] as const,
   episodes: (id: number) => ["episodes", id] as const,
   continueWatching: ["continue-watching"] as const,
+  libraryOverview: ["library-overview"] as const,
   upcoming: ["upcoming"] as const,
   stats: ["stats"] as const,
   tmdbSearch: (query: string) => ["tmdb", "search", query] as const,
@@ -42,6 +43,7 @@ export const qk = {
 function invalidateLibrary(client: QueryClient, showId?: number) {
   client.invalidateQueries({ queryKey: ["shows"] });
   client.invalidateQueries({ queryKey: qk.continueWatching });
+  client.invalidateQueries({ queryKey: qk.libraryOverview });
   client.invalidateQueries({ queryKey: qk.upcoming });
   client.invalidateQueries({ queryKey: qk.stats });
   if (showId != null) {
@@ -80,6 +82,13 @@ export function useContinueWatching() {
   return useQuery({
     queryKey: qk.continueWatching,
     queryFn: db.getContinueWatching,
+  });
+}
+
+export function useLibraryOverview() {
+  return useQuery({
+    queryKey: qk.libraryOverview,
+    queryFn: db.getLibraryOverview,
   });
 }
 

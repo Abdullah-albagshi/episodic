@@ -13,7 +13,13 @@ import {
   Text,
   View,
 } from "react-native";
-import { Button, Loading, Poster, ProgressBar } from "../../components/ui";
+import {
+  Button,
+  EpisodeStill,
+  Loading,
+  Poster,
+  ProgressBar,
+} from "../../components/ui";
 import {
   useAddShow,
   useEpisodes,
@@ -263,6 +269,10 @@ export default function ShowDetailScreen() {
                   <Text className="text-muted text-[11px]">{item.number}</Text>
                 )}
               </View>
+              <EpisodeStill
+                path={item.still_path}
+                className="w-16 h-9 rounded-md mr-3"
+              />
               <View className="flex-1">
                 <Text
                   numberOfLines={1}

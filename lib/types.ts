@@ -31,6 +31,16 @@ export interface Episode {
   title: string | null;
   air_date: string | null;
   watched_at: number | null;
+  /** TMDB still image path (episode thumbnail), if available. */
+  still_path: string | null;
+}
+
+/** A library row with progress + the next unwatched episode (null when caught up). */
+export interface LibraryEntry {
+  show: Show;
+  next: Episode | null;
+  watchedCount: number;
+  totalCount: number;
 }
 
 export interface ContinueItem {

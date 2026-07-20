@@ -12,6 +12,15 @@ export function posterUrl(
   return `${IMAGE_BASE}/${size}${path}`;
 }
 
+/** Build a URL for an episode still (thumbnail) image. */
+export function stillUrl(
+  path: string | null,
+  size: "w92" | "w185" | "w300" = "w300"
+): string | null {
+  if (!path) return null;
+  return `${IMAGE_BASE}/${size}${path}`;
+}
+
 /**
  * TMDB accepts either a v3 API key (as `api_key` query param) or a v4 read
  * access token (as a Bearer header). We detect which one the user pasted: v4
@@ -102,6 +111,7 @@ interface TmdbSeasonDetail {
     episode_number: number;
     name: string | null;
     air_date: string | null;
+    still_path: string | null;
   }[];
 }
 
@@ -138,6 +148,7 @@ export async function getAllEpisodes(
         title: e.name,
         air_date: e.air_date,
         watched_at: null,
+        still_path: e.still_path ?? null,
       });
     }
   }

@@ -2,10 +2,20 @@ import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { EmptyState, Loading, Poster, ScreenTitle } from "../../components/ui";
-import { useShows } from "../../lib/queries";
+import {
+  LibraryCompactRow,
+  LibraryGridItem,
+  LibraryViewSwitcher,
+} from "../../components/library";
+import {
+  EmptyState,
+  EpisodeProgressCard,
+  Loading,
+  ScreenTitle,
+} from "../../components/ui";
+import { useLibraryOverview, useToggleEpisode } from "../../lib/queries";
 import { useAppStore, type LibraryFilter } from "../../lib/store";
-import { SHOW_STATUSES } from "../../lib/types";
+import { SHOW_STATUSES, type LibraryEntry } from "../../lib/types";
 
 const FILTERS: LibraryFilter[] = ["all", ...SHOW_STATUSES];
 const FILTER_LABELS: Record<LibraryFilter, string> = {
@@ -18,36 +28,80 @@ const FILTER_LABELS: Record<LibraryFilter, string> = {
 
 export default function LibraryScreen() {
   const router = useRouter();
-  const { data: shows, isLoading } = useShows();
+  const { data: entries, isLoading } = useLibraryOverview();
+  const toggleEpisode = useToggleEpisode();
   const filter = useAppStore((s) => s.libraryFilter);
   const setFilter = useAppStore((s) => s.setLibraryFilter);
+  const view = useAppStore((s) => s.libraryView);
+  const setView = useAppStore((s) => s.setLibraryView);
 
   const filtered = useMemo(() => {
-    if (!shows) return [];
-    return filter === "all" ? shows : shows.filter((s) => s.status === filter);
-  }, [shows, filter]);
+    if (!entries) return [];
+    return filter === "all"
+      ? entries
+      : entries.filter((e) => e.show.status === filter);
+  }, [entries, filter]);
 
   const counts = useMemo(() => {
     const c: Record<LibraryFilter, number> = {
-      all: shows?.length ?? 0,
+      all: entries?.length ?? 0,
       watching: 0,
       plan: 0,
       completed: 0,
       dropped: 0,
     };
-    for (const s of shows ?? []) c[s.status] += 1;
+    for (const e of entries ?? []) c[e.show.status] += 1;
     return c;
-  }, [shows]);
+  }, [entries]);
+
+  function openShow(entry: LibraryEntry) {
+    router.push(`/show/${entry.show.id}`);
+  }
+
+  function markWatched(entry: LibraryEntry) {
+    if (!entry.next) return;
+    toggleEpisode.mutate({
+      showId: entry.show.id,
+      season: entry.next.season,
+      number: entry.next.number,
+      watched: true,
+    });
+  }
+
+  function renderItem(entry: LibraryEntry) {
+    switch (view) {
+      case "grid":
+        return <LibraryGridItem entry={entry} onPress={() => openShow(entry)} />;
+      case "compact":
+        return (
+          <LibraryCompactRow entry={entry} onPress={() => openShow(entry)} />
+        );
+      case "list":
+      default:
+        return (
+          <EpisodeProgressCard
+            show={entry.show}
+            next={entry.next}
+            watchedCount={entry.watchedCount}
+            totalCount={entry.totalCount}
+            onPress={() => openShow(entry)}
+            onMarkWatched={entry.next ? () => markWatched(entry) : undefined}
+          />
+        );
+    }
+  }
+
+  const numColumns = view === "grid" ? 4 : 1;
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
       <ScreenTitle title="Library" subtitle="Every show you track" />
 
-      <View className="mb-3">
+      <View className="flex-row items-center mb-3">
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0 }}
+          className="flex-1"
           contentContainerStyle={{
             paddingHorizontal: 16,
             gap: 8,
@@ -77,48 +131,43 @@ export default function LibraryScreen() {
             );
           })}
         </ScrollView>
+        <View className="pl-2 pr-4">
+          <LibraryViewSwitcher value={view} onChange={setView} />
+        </View>
       </View>
 
-      {isLoading || !shows ? (
+      {isLoading || !entries ? (
         <Loading />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon="albums-outline"
           title={
-            shows.length === 0 ? "Your library is empty" : "Nothing here yet"
+            entries.length === 0 ? "Your library is empty" : "Nothing here yet"
           }
           subtitle={
-            shows.length === 0
+            entries.length === 0
               ? "Use Search to add shows, or import your history from TV Time in Settings."
               : "No shows with this status."
           }
         />
       ) : (
         <FlatList
+          // Remount when column count changes; FlatList can't switch numColumns live.
+          key={view}
           data={filtered}
-          key={"grid"}
-          numColumns={4}
-          keyExtractor={(s) => String(s.id)}
-          columnWrapperStyle={{ gap: 12, paddingHorizontal: 16 }}
-          contentContainerStyle={{ gap: 16, paddingVertical: 8 }}
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => router.push(`/show/${item.id}`)}
-              className="flex-1 active:opacity-80 max-w-[25%]"
-            >
-              <Poster
-                path={item.poster_path}
-                title={item.title}
-                className="w-full aspect-[2/3] rounded-xl"
-              />
-              <Text
-                numberOfLines={1}
-                className="text-text text-xs mt-1.5 font-medium"
-              >
-                {item.title}
-              </Text>
-            </Pressable>
-          )}
+          numColumns={numColumns}
+          keyExtractor={(e) => String(e.show.id)}
+          columnWrapperStyle={
+            view === "grid" ? { gap: 12, paddingHorizontal: 16 } : undefined
+          }
+          contentContainerStyle={
+            view === "grid"
+              ? { gap: 16, paddingVertical: 8 }
+              : view === "list"
+              ? { padding: 16, gap: 12 }
+              : { paddingHorizontal: 16, paddingVertical: 4 }
+          }
+          renderItem={({ item }) => renderItem(item)}
         />
       )}
     </SafeAreaView>

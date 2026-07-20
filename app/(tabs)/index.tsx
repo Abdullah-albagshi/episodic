@@ -1,13 +1,11 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
-import { Pressable, SectionList, Text, View } from "react-native";
+import { SectionList, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   EmptyState,
+  EpisodeProgressCard,
   Loading,
-  Poster,
-  ProgressBar,
   ScreenTitle,
 } from "../../components/ui";
 import { useContinueWatching, useToggleEpisode } from "../../lib/queries";
@@ -74,53 +72,14 @@ export default function HomeScreen() {
             </Text>
           )}
           renderItem={({ item }) => (
-            <Pressable
+            <EpisodeProgressCard
+              show={item.show}
+              next={item.next}
+              watchedCount={item.watchedCount}
+              totalCount={item.totalCount}
               onPress={() => router.push(`/show/${item.show.id}`)}
-              className="flex-row bg-surface rounded-2xl overflow-hidden active:opacity-80"
-            >
-              <Poster
-                path={item.show.poster_path}
-                size="w185"
-                title={item.show.title}
-                className="w-24 h-36"
-              />
-              <View className="flex-1 p-3 justify-between">
-                <View>
-                  <Text
-                    numberOfLines={1}
-                    className="text-text font-semibold text-base"
-                  >
-                    {item.show.title}
-                  </Text>
-                  <Text className="text-primary font-medium mt-1">
-                    S{item.next.season} · E{item.next.number}
-                  </Text>
-                  <Text numberOfLines={1} className="text-muted mt-0.5">
-                    {item.next.title ?? "Episode " + item.next.number}
-                  </Text>
-                </View>
-                <View className="mt-2">
-                  <View className="flex-row justify-between mb-1">
-                    <Text className="text-muted text-xs">
-                      {item.watchedCount}/{item.totalCount} watched
-                    </Text>
-                  </View>
-                  <ProgressBar
-                    value={item.watchedCount}
-                    total={item.totalCount}
-                  />
-                </View>
-              </View>
-              <Pressable
-                onPress={() => markWatched(item)}
-                hitSlop={8}
-                className="items-center justify-center px-4 active:opacity-70"
-              >
-                <View className="w-11 h-11 rounded-full bg-primary items-center justify-center">
-                  <Ionicons name="checkmark" size={22} color="#fff" />
-                </View>
-              </Pressable>
-            </Pressable>
+              onMarkWatched={() => markWatched(item)}
+            />
           )}
         />
       )}

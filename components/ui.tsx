@@ -7,8 +7,8 @@ import {
   Text,
   View,
 } from "react-native";
-import { posterUrl } from "../lib/tmdb";
-import { STATUS_LABELS, ShowStatus } from "../lib/types";
+import { posterUrl, stillUrl } from "../lib/tmdb";
+import { STATUS_LABELS, ShowStatus, type Episode, type Show } from "../lib/types";
 
 export function Poster({
   path,
@@ -82,6 +82,126 @@ export function ProgressBar({
         style={{ width: `${pct}%` }}
       />
     </View>
+  );
+}
+
+/** Zero-padded "S05 · E04" episode label. */
+function episodeLabel(season: number, number: number): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `S${pad(season)} · E${pad(number)}`;
+}
+
+/** Landscape episode still (16:9), with a tv-icon placeholder when missing. */
+export function EpisodeStill({
+  path,
+  className = "",
+}: {
+  path: string | null;
+  className?: string;
+}) {
+  const url = stillUrl(path, "w300");
+  if (url) {
+    return (
+      <Image
+        source={{ uri: url }}
+        className={`bg-surface2 ${className}`}
+        resizeMode="cover"
+      />
+    );
+  }
+  return (
+    <View className={`bg-surface2 items-center justify-center ${className}`}>
+      <Ionicons name="tv-outline" size={16} color="#9a9ab0" />
+    </View>
+  );
+}
+
+/**
+ * A rich library/continue-watching row: poster, title, an inset "next episode"
+ * chip (season/episode + title + a round mark-watched toggle) and a progress
+ * bar with a watched/total count. `next` is null when the show is caught up.
+ */
+export function EpisodeProgressCard({
+  show,
+  next,
+  watchedCount,
+  totalCount,
+  onPress,
+  onMarkWatched,
+}: {
+  show: Show;
+  next: Episode | null;
+  watchedCount: number;
+  totalCount: number;
+  onPress: () => void;
+  onMarkWatched?: () => void;
+}) {
+  const caughtUpLabel =
+    show.status === "completed"
+      ? "Completed"
+      : totalCount > 0 && watchedCount >= totalCount
+      ? "All caught up"
+      : "Nothing to watch yet";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row bg-surface rounded-2xl overflow-hidden active:opacity-90"
+    >
+      <Poster
+        path={show.poster_path}
+        size="w185"
+        title={show.title}
+        className="w-[84px] self-stretch min-h-[128px]"
+      />
+      <View className="flex-1 p-3 justify-between">
+        <Text numberOfLines={1} className="text-text font-bold text-[15px]">
+          {show.title}
+        </Text>
+
+        {next ? (
+          <View className="flex-row items-center bg-surface2 rounded-xl p-2 mt-2">
+            <EpisodeStill
+              path={next.still_path}
+              className="w-[52px] h-[30px] rounded-md"
+            />
+            <View className="flex-1 px-2">
+              <Text className="text-text font-semibold text-xs">
+                {episodeLabel(next.season, next.number)}
+              </Text>
+              <Text numberOfLines={1} className="text-muted text-xs mt-0.5">
+                {next.title ?? `Episode ${next.number}`}
+              </Text>
+            </View>
+            {onMarkWatched ? (
+              <Pressable
+                onPress={onMarkWatched}
+                hitSlop={10}
+                className="active:opacity-60"
+              >
+                <View className="w-7 h-7 rounded-full border-2 border-muted" />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : (
+          <View className="flex-row items-center bg-surface2 rounded-xl px-3 py-2 mt-2">
+            <Ionicons name="checkmark-done" size={16} color="#3ecf8e" />
+            <Text className="text-success text-xs font-medium ml-2">
+              {caughtUpLabel}
+            </Text>
+          </View>
+        )}
+
+        <View className="flex-row items-center mt-2">
+          <View className="flex-1 mr-2">
+            <ProgressBar value={watchedCount} total={totalCount} />
+          </View>
+          <Text className="text-muted text-xs">
+            {watchedCount}/{totalCount}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
   );
 }
 

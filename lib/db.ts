@@ -3,6 +3,7 @@ import type {
   ContinueItem,
   Episode,
   ExportBundle,
+  LibraryEntry,
   ProfileStats,
   Show,
   ShowStatus,
@@ -91,6 +92,7 @@ function createSqliteBackend(): Backend {
           title TEXT,
           air_date TEXT,
           watched_at INTEGER,
+          still_path TEXT,
           PRIMARY KEY (show_id, season, number)
         );
         CREATE TABLE IF NOT EXISTS settings (
@@ -98,6 +100,13 @@ function createSqliteBackend(): Backend {
           value TEXT
         );
       `);
+      // Add columns introduced after the initial schema for existing databases.
+      const cols: { name: string }[] = await d.getAllAsync(
+        "PRAGMA table_info(episodes)"
+      );
+      if (!cols.some((c) => c.name === "still_path")) {
+        await d.execAsync("ALTER TABLE episodes ADD COLUMN still_path TEXT");
+      }
     },
 
     async getSetting(key) {
@@ -186,12 +195,21 @@ function createSqliteBackend(): Backend {
       await d.withTransactionAsync(async () => {
         for (const e of episodes) {
           await d.runAsync(
-            `INSERT INTO episodes (show_id, season, number, title, air_date, watched_at)
-             VALUES (?, ?, ?, ?, ?, ?)
+            `INSERT INTO episodes (show_id, season, number, title, air_date, watched_at, still_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(show_id, season, number) DO UPDATE SET
                title = excluded.title,
-               air_date = excluded.air_date`,
-            [e.show_id, e.season, e.number, e.title, e.air_date, e.watched_at]
+               air_date = excluded.air_date,
+               still_path = COALESCE(excluded.still_path, episodes.still_path)`,
+            [
+              e.show_id,
+              e.season,
+              e.number,
+              e.title,
+              e.air_date,
+              e.watched_at,
+              e.still_path ?? null,
+            ]
           );
         }
       });
@@ -329,6 +347,7 @@ function createWebBackend(): Backend {
         if (found) {
           found.title = e.title;
           found.air_date = e.air_date;
+          if (e.still_path != null) found.still_path = e.still_path;
         } else {
           map.set(epKey(e), { ...e });
         }
@@ -515,6 +534,25 @@ export async function getContinueWatching(): Promise<ContinueItem[]> {
     }
   }
   return items;
+}
+
+/**
+ * Every library show with its watch progress and next unwatched (aired) main
+ * episode. `next` is null once a show is caught up. Used by the Library list.
+ */
+export async function getLibraryOverview(): Promise<LibraryEntry[]> {
+  const shows = await backend.getShows();
+  const out: LibraryEntry[] = [];
+  for (const show of shows) {
+    const eps = await backend.getEpisodes(show.id);
+    const main = eps.filter((e) => isMainSeason(e.season));
+    const aired = main.filter((e) => isReleased(e.air_date));
+    const totalCount = main.length;
+    const watchedCount = main.filter((e) => e.watched_at != null).length;
+    const next = aired.find((e) => e.watched_at == null) ?? null;
+    out.push({ show, next, watchedCount, totalCount });
+  }
+  return out;
 }
 
 /** Aired-in-the-future episodes for tracked (non-dropped) shows, soonest first. */
