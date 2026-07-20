@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
-import type { LibraryView } from "../lib/store";
+import type { LibraryFilter, LibraryView } from "../lib/store";
 import type { LibraryEntry } from "../lib/types";
-import { Poster, ProgressBar } from "./ui";
+import { BottomSheet, Poster, ProgressBar } from "./ui";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -101,6 +101,65 @@ export function LibraryOptionsMenu({
         </Pressable>
       </Modal>
     </>
+  );
+}
+
+/**
+ * Status filter presented as a bottom drawer (built on the reusable
+ * `BottomSheet`), which is friendlier on small screens than a crowded row of
+ * chips. Selecting a status applies it and closes the drawer.
+ */
+export function LibraryFilterDrawer({
+  visible,
+  onClose,
+  value,
+  filters,
+  labels,
+  counts,
+  onChange,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  value: LibraryFilter;
+  filters: LibraryFilter[];
+  labels: Record<LibraryFilter, string>;
+  counts: Record<LibraryFilter, number>;
+  onChange: (filter: LibraryFilter) => void;
+}) {
+  return (
+    <BottomSheet visible={visible} onClose={onClose} title="Filter by status">
+      <View className="gap-1">
+        {filters.map((f) => {
+          const active = f === value;
+          return (
+            <Pressable
+              key={f}
+              onPress={() => {
+                onChange(f);
+                onClose();
+              }}
+              className={`flex-row items-center justify-between h-12 px-3 rounded-xl ${
+                active ? "bg-primary/15" : "active:bg-surface2"
+              }`}
+            >
+              <Text
+                className={`font-medium ${
+                  active ? "text-primary" : "text-text"
+                }`}
+              >
+                {labels[f]}
+              </Text>
+              <View className="flex-row items-center gap-3">
+                <Text className="text-muted text-xs">{counts[f]}</Text>
+                {active ? (
+                  <Ionicons name="checkmark" size={18} color="#7c5cff" />
+                ) : null}
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </BottomSheet>
   );
 }
 

@@ -1,9 +1,11 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo } from "react";
-import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { FlatList, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   LibraryCompactRow,
+  LibraryFilterDrawer,
   LibraryGridItem,
   LibraryOptionsMenu,
 } from "../../components/library";
@@ -34,6 +36,7 @@ export default function LibraryScreen() {
   const setFilter = useAppStore((s) => s.setLibraryFilter);
   const view = useAppStore((s) => s.libraryView);
   const setView = useAppStore((s) => s.setLibraryView);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const filtered = useMemo(() => {
     if (!entries) return [];
@@ -97,44 +100,30 @@ export default function LibraryScreen() {
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
       <ScreenTitle title="Library" subtitle="Every show you track" />
 
-      <View className="flex-row items-center mb-3">
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          className="flex-1"
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            gap: 8,
-            alignItems: "center",
-          }}
+      <View className="flex-row items-center justify-between px-4 mb-3">
+        <Pressable
+          onPress={() => setFilterOpen(true)}
+          className="flex-row items-center gap-2 h-9 pl-3 pr-2.5 rounded-full bg-surface active:opacity-70"
         >
-          {FILTERS.map((f) => {
-            const active = f === filter;
-            const count = counts[f];
-            return (
-              <Pressable
-                key={f}
-                onPress={() => setFilter(f)}
-                className={`h-9 px-3 rounded-full flex-row items-center ${
-                  active ? "bg-primary" : "bg-surface"
-                }`}
-              >
-                <Text
-                  className={`font-medium ${
-                    active ? "text-white" : "text-muted"
-                  }`}
-                >
-                  {FILTER_LABELS[f]}
-                  {count > 0 ? ` · ${count}` : ""}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-        <View className="pl-2 pr-4">
-          <LibraryOptionsMenu value={view} onChange={setView} />
-        </View>
+          <Ionicons name="options-outline" size={16} color="#f2f2f7" />
+          <Text className="text-text font-medium">
+            {FILTER_LABELS[filter]}
+            {counts[filter] > 0 ? ` · ${counts[filter]}` : ""}
+          </Text>
+          <Ionicons name="chevron-down" size={14} color="#9a9ab0" />
+        </Pressable>
+        <LibraryOptionsMenu value={view} onChange={setView} />
       </View>
+
+      <LibraryFilterDrawer
+        visible={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        value={filter}
+        filters={FILTERS}
+        labels={FILTER_LABELS}
+        counts={counts}
+        onChange={setFilter}
+      />
 
       {isLoading || !entries ? (
         <Loading />

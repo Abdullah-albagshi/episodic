@@ -3,10 +3,12 @@ import { ReactNode } from "react";
 import {
   ActivityIndicator,
   Image,
+  Modal,
   Pressable,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { posterUrl, stillUrl } from "../lib/tmdb";
 import { STATUS_LABELS, ShowStatus, type Episode, type Show } from "../lib/types";
 
@@ -287,6 +289,97 @@ export function Loading({ label }: { label?: string }) {
       <ActivityIndicator color="#7c5cff" />
       {label ? <Text className="mt-3 text-muted">{label}</Text> : null}
     </View>
+  );
+}
+
+/**
+ * Consistent full-screen error state with an optional retry action. Mirrors
+ * `EmptyState` but is tinted with the accent color to read as a failure. Pass
+ * `onRetry` to render a built-in "Try again" button, or `action` for custom
+ * recovery UI.
+ */
+export function ErrorState({
+  icon = "alert-circle-outline",
+  title = "Something went wrong",
+  message,
+  onRetry,
+  retryLabel = "Try again",
+  action,
+}: {
+  icon?: keyof typeof Ionicons.glyphMap;
+  title?: string;
+  message?: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <View className="items-center justify-center flex-1 px-8 py-16">
+      <View className="items-center justify-center w-16 h-16 mb-4 rounded-2xl bg-accent/15">
+        <Ionicons name={icon} size={30} color="#ff5c8a" />
+      </View>
+      <Text className="text-lg font-semibold text-center text-text">
+        {title}
+      </Text>
+      {message ? (
+        <Text className="mt-1 leading-5 text-center text-muted">{message}</Text>
+      ) : null}
+      {action ? (
+        <View className="w-full max-w-xs mt-5">{action}</View>
+      ) : onRetry ? (
+        <View className="w-full max-w-xs mt-5">
+          <Button label={retryLabel} icon="refresh" onPress={onRetry} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Normalize an unknown thrown value into a user-facing message. */
+export function errorMessage(error: unknown, fallback = "Please try again."): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+  return fallback;
+}
+
+/**
+ * Reusable bottom drawer/sheet. Slides up from the bottom, dims the background,
+ * and closes on backdrop tap or hardware back. The caller supplies the content,
+ * so it can back filters, sort menus, action lists, etc.
+ */
+export function BottomSheet({
+  visible,
+  onClose,
+  title,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable className="flex-1 justify-end bg-black/60" onPress={onClose}>
+        {/* Swallow taps on the sheet itself so only backdrop taps dismiss. */}
+        <Pressable onPress={() => {}} className="active:opacity-100">
+          <SafeAreaView edges={["bottom"]} className="bg-surface rounded-t-3xl">
+            <View className="px-4 pt-3 pb-4">
+              <View className="w-10 h-1.5 rounded-full bg-border self-center mb-4" />
+              {title ? (
+                <Text className="text-text text-lg font-bold mb-3">{title}</Text>
+              ) : null}
+              {children}
+            </View>
+          </SafeAreaView>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
