@@ -48,6 +48,8 @@ export interface ParsedShow {
   progress?: { season: number; number: number; watchedAt: number | null };
   /** Authoritative "episodes seen" from user_tv_show_data.csv, when available. */
   expectedSeen?: number;
+  /** When the show was first followed/added (epoch ms), used for `added_at`. */
+  followedAt?: number | null;
 }
 
 /**
@@ -81,6 +83,8 @@ export interface FollowedDatum {
   name: string;
   active: boolean;
   archived: boolean;
+  /** When the show was first followed (epoch ms), if the export provides it. */
+  followedAt: number | null;
 }
 
 /** One row of user_show_special_status.csv. */
@@ -209,6 +213,23 @@ function parseDate(value: string | undefined): number | null {
 }
 
 /**
+ * Parse a TV Time timestamp into epoch ms, tolerating either the usual
+ * "YYYY-MM-DD HH:MM:SS" UTC string or a raw epoch number. Epoch units are
+ * disambiguated by magnitude (seconds / milliseconds / microseconds), matching
+ * how TV Time renders values like `watch_date` as Go float64s.
+ */
+function parseTimestamp(value: string | undefined): number | null {
+  const asDate = parseDate(value);
+  if (asDate != null) return asDate;
+  const n = parseScientific(value);
+  if (n == null || n <= 0) return null;
+  if (n >= 1e15) return Math.round(n / 1000); // microseconds
+  if (n >= 1e12) return Math.round(n); // milliseconds
+  if (n >= 1e9) return Math.round(n * 1000); // seconds
+  return null;
+}
+
+/**
  * Parse a numeric token that may be printed in scientific notation. TV Time
  * stores several fields as Go float64s, so ids/timestamps come through like
  * "9.061384e+06" (= 9061384) or "1.652128521883752e+15". Returns null for
@@ -300,6 +321,8 @@ export function parseTvTimeCsv(text: string): ParsedShow[] {
         number: number;
         watchedAt: number | null;
       } | null;
+      /** When the show was first followed (from the user-series row). */
+      followedAt: number | null;
     }
   >();
   const tvdbByShow = new Map<string, number>();
@@ -352,7 +375,12 @@ export function parseTvTimeCsv(text: string): ParsedShow[] {
         let status: ShowStatus = "watching";
         if (isTrue(cols[forLaterIdx])) status = "plan";
         else if (isTrue(cols[archivedIdx])) status = "completed";
-        info.set(name, { status, progress: parseProgress(cols[recentIdx]) });
+        // The user-series row's created_at is when the show was first followed.
+        info.set(name, {
+          status,
+          progress: parseProgress(cols[recentIdx]),
+          followedAt: parseTimestamp(cols[createdIdx]),
+        });
       }
       // other key types (tracking-stats, movies, etc.) are ignored
     } else if (season != null && number != null) {
@@ -377,6 +405,7 @@ export function parseTvTimeCsv(text: string): ParsedShow[] {
           })
         : [],
       progress: !watched && meta?.progress ? meta.progress : undefined,
+      followedAt: meta?.followedAt ?? null,
     });
   }
   return result;
@@ -452,6 +481,7 @@ export function parseFollowedShows(text: string): FollowedDatum[] {
   const idIdx = findColumn(h, ["tvshowid", "showid", "seriesid"]);
   const activeIdx = findColumn(h, ["active"], true);
   const archivedIdx = findColumn(h, ["archived"], true);
+  const followedAtIdx = findColumn(h, ["followedat", "createdat"]);
   if (nameIdx === -1 && idIdx === -1) return [];
   const out: FollowedDatum[] = [];
   for (let r = 1; r < rows.length; r++) {
@@ -464,6 +494,7 @@ export function parseFollowedShows(text: string): FollowedDatum[] {
       name,
       active: activeIdx >= 0 ? truthy(c[activeIdx]) : true,
       archived: archivedIdx >= 0 ? truthy(c[archivedIdx]) : false,
+      followedAt: followedAtIdx >= 0 ? parseTimestamp(c[followedAtIdx]) : null,
     });
   }
   return out;
@@ -681,6 +712,15 @@ function enrichEntries(
     if (u.name) seenByName.set(normalizeTitle(u.name), u.seen);
   }
 
+  // followed_tv_show.csv's `followed_at` is the authoritative "date added".
+  const followedAtByTvdb = new Map<number, number>();
+  const followedAtByName = new Map<string, number>();
+  for (const f of followed) {
+    if (f.followedAt == null) continue;
+    if (f.tvdbId != null) followedAtByTvdb.set(f.tvdbId, f.followedAt);
+    if (f.name) followedAtByName.set(normalizeTitle(f.name), f.followedAt);
+  }
+
   // Priority: archived → completed, for_later → plan, actively followed →
   // watching. Leave ambiguous rows to the tracking log's own flags.
   const statusByTvdb = new Map<number, ShowStatus>();
@@ -728,6 +768,10 @@ function enrichEntries(
       expectedSeen:
         (tvdbId != null ? seenByTvdb.get(tvdbId) : undefined) ??
         (name ? seenByName.get(normalizeTitle(name)) : undefined),
+      followedAt:
+        (tvdbId != null ? followedAtByTvdb.get(tvdbId) : undefined) ??
+        (name ? followedAtByName.get(normalizeTitle(name)) : undefined) ??
+        null,
     });
   };
 
@@ -751,6 +795,13 @@ function enrichEntries(
       (entry.tvdbId != null ? statusByTvdb.get(entry.tvdbId) : undefined) ??
       statusByName.get(nt);
     if (status) entry.status = status;
+
+    // Prefer the explicit followed_at; keep the tracking-log created_at as a
+    // fallback so shows missing from followed_tv_show.csv still get a real date.
+    const followedAt =
+      (entry.tvdbId != null ? followedAtByTvdb.get(entry.tvdbId) : undefined) ??
+      followedAtByName.get(nt);
+    if (followedAt != null) entry.followedAt = followedAt;
   }
 }
 
@@ -824,7 +875,7 @@ export async function runTvTimeImport(
         overview: best.overview,
         first_air_date: best.first_air_date,
         status: entry.status,
-        added_at: Date.now(),
+        added_at: entry.followedAt ?? Date.now(),
       };
       await upsertShow(show);
       await setShowStatus(best.id, entry.status);

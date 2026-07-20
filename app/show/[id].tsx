@@ -33,6 +33,16 @@ import {
   type ShowStatus,
 } from "../../lib/types";
 
+/** Format an epoch-ms watch timestamp as a local YYYY-MM-DD calendar date. */
+function formatWatchedDate(ms: number): string {
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 interface Section {
   season: number;
   /** Episodes rendered by the list — empty when the season is collapsed. */
@@ -234,6 +244,8 @@ export default function ShowDetailScreen() {
         }}
         renderItem={({ item }) => {
           const watched = item.watched_at != null;
+          const watchedDate =
+            item.watched_at != null ? formatWatchedDate(item.watched_at) : null;
           return (
             <Pressable
               onPress={() => onToggleEpisode(item)}
@@ -258,10 +270,20 @@ export default function ShowDetailScreen() {
                 >
                   {item.number}. {item.title ?? `Episode ${item.number}`}
                 </Text>
-                {item.air_date ? (
-                  <Text className="text-muted text-xs mt-0.5">
-                    {item.air_date}
-                  </Text>
+                {item.air_date || watchedDate ? (
+                  <View className="flex-row items-center flex-wrap mt-0.5">
+                    {item.air_date ? (
+                      <Text className="text-muted text-xs">{item.air_date}</Text>
+                    ) : null}
+                    {watchedDate ? (
+                      <View className="flex-row items-center ml-2">
+                        <Ionicons name="eye" size={11} color="#3ecf8e" />
+                        <Text className="text-success text-xs ml-1">
+                          {watchedDate}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 ) : null}
               </View>
             </Pressable>
@@ -317,6 +339,14 @@ function Header({
               <Text className="text-muted mt-1">
                 {show.first_air_date.slice(0, 4)}
               </Text>
+            ) : null}
+            {inLibrary && show?.added_at ? (
+              <View className="flex-row items-center mt-1">
+                <Ionicons name="add-circle-outline" size={12} color="#9a9ab0" />
+                <Text className="text-muted text-xs ml-1">
+                  Followed {formatWatchedDate(show.added_at)}
+                </Text>
+              </View>
             ) : null}
           </View>
           {inLibrary && total > 0 ? (
