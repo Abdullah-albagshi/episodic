@@ -55,7 +55,7 @@ export interface ProfileStats {
   episodesWatched: number;
   /** Every episode stored across the library. */
   totalEpisodes: number;
-  /** Seasons where every episode has been watched. */
+  /** Seasons (excluding specials) where every episode has been watched. */
   seasonsCompleted: number;
   totalShows: number;
   showsByStatus: Record<ShowStatus, number>;

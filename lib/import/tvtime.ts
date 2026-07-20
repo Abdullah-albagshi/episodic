@@ -2,6 +2,7 @@ import {
   SETTING_TVTIME_RUNTIME_SEC,
   setSetting,
   setShowStatus,
+  syncShowCompletion,
   upsertEpisodes,
   upsertShow,
 } from "../db";
@@ -786,6 +787,9 @@ export async function runTvTimeImport(
         watched_at: watchedMap.get(`${ep.season}:${ep.number}`) ?? null,
       }));
       await upsertEpisodes(withWatched);
+      // Promote to completed when every main season is watched (specials ignored).
+      // Don't demote TV Time archived shows that didn't match 100% on TMDB.
+      await syncShowCompletion(best.id, { demote: false });
 
       summary.matched.push({
         name: entry.name,

@@ -95,7 +95,12 @@ export default function ShowDetailScreen() {
       bySeason.get(e.season)!.push(e);
     }
     return [...bySeason.entries()]
-      .sort((a, b) => a[0] - b[0])
+      // Regular seasons ascending, specials (0) last.
+      .sort((a, b) => {
+        if (a[0] === 0) return 1;
+        if (b[0] === 0) return -1;
+        return a[0] - b[0];
+      })
       .map(([season, data]) => {
         const watched = data.filter((e) => e.watched_at != null).length;
         const fullyWatched = data.length > 0 && watched === data.length;
@@ -110,7 +115,10 @@ export default function ShowDetailScreen() {
       });
   }, [episodes, collapseOverrides]);
 
-  const totalWatched = episodes.filter((e) => e.watched_at != null).length;
+  // Progress ignores specials — unwatched specials don't block a finished show.
+  const mainEpisodes = episodes.filter((e) => e.season > 0);
+  const totalWatched = mainEpisodes.filter((e) => e.watched_at != null).length;
+  const totalMain = mainEpisodes.length;
 
   useLayoutEffect(() => {
     navigation.setOptions({ title: show?.title ?? "" });
@@ -181,7 +189,7 @@ export default function ShowDetailScreen() {
             inLibrary={inLibrary}
             adding={addShow.isPending}
             totalWatched={totalWatched}
-            total={episodes.length}
+            total={totalMain}
             onStatus={(s) => setStatus.mutate({ id: showId, status: s })}
             onAdd={onAdd}
             onRemove={confirmRemove}

@@ -380,7 +380,13 @@ const backend: Backend =
 let initPromise: Promise<void> | null = null;
 
 export function initDb(): Promise<void> {
-  if (!initPromise) initPromise = backend.init();
+  if (!initPromise) {
+    initPromise = (async () => {
+      await backend.init();
+      // Fix statuses for libraries imported before auto-complete existed.
+      await reconcileLibraryCompletion();
+    })();
+  }
   return initPromise;
 }
 
@@ -398,17 +404,94 @@ export const removeShow = (id: number) => backend.removeShow(id);
 export const getEpisodes = (showId: number) => backend.getEpisodes(showId);
 export const upsertEpisodes = (episodes: Episode[]) =>
   backend.upsertEpisodes(episodes);
-export const setEpisodeWatched = (
+
+/** Regular seasons only — specials (season 0) don't block completion. */
+function isMainSeason(season: number): boolean {
+  return season > 0;
+}
+
+function isReleased(airDate: string | null): boolean {
+  if (!airDate) return true; // unknown air date: treat as available
+  const t = Date.parse(airDate);
+  if (Number.isNaN(t)) return true;
+  return t <= Date.now();
+}
+
+/**
+ * True when every released main-season episode is watched.
+ * Specials and unaired future episodes don't count — so unfinished airings
+ * stay watching, and missing specials don't block completion.
+ */
+function isFullyWatched(episodes: Episode[]): boolean {
+  const main = episodes.filter((e) => isMainSeason(e.season));
+  if (main.length === 0) return false;
+  if (main.some((e) => !isReleased(e.air_date))) return false;
+  return main.every((e) => e.watched_at != null);
+}
+
+/**
+ * Auto-mark a show completed once all main seasons are watched.
+ * When `demote` is true (manual watch toggles), unwatching moves completed
+ * back to watching. Import/startup reconciliation only promotes — it must not
+ * wipe TV Time "archived" status when TMDB matching is incomplete.
+ */
+export async function syncShowCompletion(
+  showId: number,
+  { demote = true }: { demote?: boolean } = {}
+): Promise<void> {
+  const show = await backend.getShow(showId);
+  if (!show || show.status === "dropped") return;
+
+  const eps = await backend.getEpisodes(showId);
+  const done = isFullyWatched(eps);
+
+  if (done && show.status !== "completed") {
+    await backend.setShowStatus(showId, "completed");
+  } else if (demote && !done && show.status === "completed") {
+    await backend.setShowStatus(showId, "watching");
+  }
+}
+
+/** Promote fully-watched library shows to completed (no demotion). */
+export async function reconcileLibraryCompletion(): Promise<void> {
+  const shows = await backend.getShows();
+  const allEps = await backend.allEpisodes();
+  const byShow = new Map<number, Episode[]>();
+  for (const e of allEps) {
+    let list = byShow.get(e.show_id);
+    if (!list) {
+      list = [];
+      byShow.set(e.show_id, list);
+    }
+    list.push(e);
+  }
+  for (const show of shows) {
+    if (show.status === "dropped" || show.status === "completed") continue;
+    const eps = byShow.get(show.id) ?? [];
+    if (isFullyWatched(eps)) {
+      await backend.setShowStatus(show.id, "completed");
+    }
+  }
+}
+
+export async function setEpisodeWatched(
   showId: number,
   season: number,
   number: number,
   watched: boolean
-) => backend.setEpisodeWatched(showId, season, number, watched);
-export const setSeasonWatched = (
+): Promise<void> {
+  await backend.setEpisodeWatched(showId, season, number, watched);
+  await syncShowCompletion(showId);
+}
+
+export async function setSeasonWatched(
   showId: number,
   season: number,
   watched: boolean
-) => backend.setSeasonWatched(showId, season, watched);
+): Promise<void> {
+  await backend.setSeasonWatched(showId, season, watched);
+  await syncShowCompletion(showId);
+}
 
 /** Next unwatched episode per "watching" show, plus progress counts. */
 export async function getContinueWatching(): Promise<ContinueItem[]> {
@@ -416,9 +499,11 @@ export async function getContinueWatching(): Promise<ContinueItem[]> {
   const items: ContinueItem[] = [];
   for (const show of shows) {
     const eps = await backend.getEpisodes(show.id);
-    const aired = eps.filter((e) => isReleased(e.air_date));
-    const totalCount = eps.length;
-    const watchedCount = eps.filter((e) => e.watched_at != null).length;
+    // Specials are optional; progress and "next up" ignore season 0.
+    const main = eps.filter((e) => isMainSeason(e.season));
+    const aired = main.filter((e) => isReleased(e.air_date));
+    const totalCount = main.length;
+    const watchedCount = main.filter((e) => e.watched_at != null).length;
     const next = aired.find((e) => e.watched_at == null);
     if (next) {
       const lastWatchedAt = eps.reduce(
@@ -489,6 +574,9 @@ export async function getProfileStats(): Promise<ProfileStats> {
 
   let seasonsCompleted = 0;
   for (const [sk, total] of seasonTotal) {
+    const season = Number(sk.split(":")[1]);
+    // Don't count specials toward "seasons completed".
+    if (!isMainSeason(season)) continue;
     if (total > 0 && seasonWatched.get(sk) === total) seasonsCompleted += 1;
   }
 
@@ -559,9 +647,3 @@ export async function importAll(bundle: ExportBundle): Promise<void> {
 
 export const clearAll = () => backend.clearAll();
 
-function isReleased(airDate: string | null): boolean {
-  if (!airDate) return true; // unknown air date: treat as available
-  const t = Date.parse(airDate);
-  if (Number.isNaN(t)) return true;
-  return t <= Date.now();
-}
