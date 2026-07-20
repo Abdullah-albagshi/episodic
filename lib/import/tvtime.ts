@@ -43,8 +43,9 @@ export interface ParsedShow {
   status: ShowStatus;
   /** Explicitly-watched episodes (from `watch-episode` rows). */
   episodes: ParsedEpisode[];
-  /** Fallback: latest watched episode, used only when no explicit rows exist. */
-  progress?: { season: number; number: number };
+  /** Fallback: latest watched episode, used only when no explicit rows exist.
+   * `watchedAt` (epoch ms) comes from the blob's `watch_date` when present. */
+  progress?: { season: number; number: number; watchedAt: number | null };
   /** Authoritative "episodes seen" from user_tv_show_data.csv, when available. */
   expectedSeen?: number;
 }
@@ -207,16 +208,54 @@ function parseDate(value: string | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-/** Extract `s_no` / `ep_no` from TV Time's Go-map blob in most_recent_ep_watched. */
+/**
+ * Parse a numeric token that may be printed in scientific notation. TV Time
+ * stores several fields as Go float64s, so ids/timestamps come through like
+ * "9.061384e+06" (= 9061384) or "1.652128521883752e+15". Returns null for
+ * blank/non-finite values.
+ */
+function parseScientific(token: string | undefined): number | null {
+  if (token == null) return null;
+  const t = token.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The `gsi` column on `watch-episode` rows encodes the watch time as
+ * "watch-episode-<unix_seconds>" (e.g. watch-episode-1779114564). Convert the
+ * trailing 10+ digit seconds timestamp to epoch ms. Requiring 10+ digits avoids
+ * mistaking a shorter episode id for a timestamp.
+ */
+function parseGsiWatchDate(value: string | undefined): number | null {
+  if (!value) return null;
+  const m = /watch-episode-(\d{10,})/.exec(value);
+  if (!m) return null;
+  const secs = Number(m[1]);
+  return Number.isFinite(secs) ? secs * 1000 : null;
+}
+
+/**
+ * Extract most-recent progress from TV Time's Go-map blob in
+ * `most_recent_ep_watched`, e.g.
+ *   map[ep_id:9.061384e+06 ep_no:5 s_no:1 uuid:... watch_date:1.652128521883752e+15]
+ * `watch_date` is epoch microseconds (usually scientific notation); we convert
+ * it to epoch ms so the progress fallback carries a real watch time.
+ */
 function parseProgress(value: string | undefined): {
   season: number;
   number: number;
+  watchedAt: number | null;
 } | null {
   if (!value) return null;
   const s = /s_no:(\d+)/.exec(value);
   const e = /ep_no:(\d+)/.exec(value);
-  if (s && e) return { season: Number(s[1]), number: Number(e[1]) };
-  return null;
+  if (!s || !e) return null;
+  const wd = /watch_date:([0-9eE.+\-]+)/.exec(value);
+  const micros = wd ? parseScientific(wd[1]) : null;
+  const watchedAt = micros != null ? Math.round(micros / 1000) : null;
+  return { season: Number(s[1]), number: Number(e[1]), watchedAt };
 }
 
 export function parseTvTimeCsv(text: string): ParsedShow[] {
@@ -245,6 +284,7 @@ export function parseTvTimeCsv(text: string): ParsedShow[] {
   const sIdIdx = findColumn(headers, ["sid"], true); // TheTVDB series id
   const createdIdx = findColumn(headers, ["createdat"]);
   const updatedIdx = findColumn(headers, ["updatedat"]);
+  const gsiIdx = findColumn(headers, ["gsi"], true);
   const recentIdx = findColumn(headers, ["mostrecentepwatched"]);
   const forLaterIdx = findColumn(headers, ["isforlater"]);
   const archivedIdx = findColumn(headers, ["isarchived"]);
@@ -253,7 +293,14 @@ export function parseTvTimeCsv(text: string): ParsedShow[] {
   const watchedByShow = new Map<string, Map<string, number | null>>();
   const info = new Map<
     string,
-    { status: ShowStatus; progress: { season: number; number: number } | null }
+    {
+      status: ShowStatus;
+      progress: {
+        season: number;
+        number: number;
+        watchedAt: number | null;
+      } | null;
+    }
   >();
   const tvdbByShow = new Map<string, number>();
 
@@ -290,8 +337,12 @@ export function parseTvTimeCsv(text: string): ParsedShow[] {
     const number = toInt(cols[episodeIdx]) ?? toInt(cols[epNoIdx]);
     const tvdbId = sIdIdx >= 0 ? toInt(cols[sIdIdx]) : null;
     if (tvdbId != null && !tvdbByShow.has(name)) tvdbByShow.set(name, tvdbId);
+    // Prefer the explicit created_at; fall back to the gsi-encoded watch time
+    // (watch-episode-<unix_seconds>), then updated_at.
     const watchedAt =
-      parseDate(cols[createdIdx]) ?? parseDate(cols[updatedIdx]);
+      parseDate(cols[createdIdx]) ??
+      parseGsiWatchDate(gsiIdx >= 0 ? cols[gsiIdx] : undefined) ??
+      parseDate(cols[updatedIdx]);
 
     if (keyIdx >= 0) {
       if (key.startsWith("watch-episode")) {
@@ -601,10 +652,13 @@ function resolveWatched(
 
   const watched = new Map<string, number>();
   if (entry.progress) {
-    const { season: pS, number: pE } = entry.progress;
+    const { season: pS, number: pE, watchedAt } = entry.progress;
+    // Only the most-recent episode's real watch time is known; use it for the
+    // whole caught-up range as a better estimate than import time.
+    const at = watchedAt ?? now;
     for (const ep of episodes) {
       if (ep.season < pS || (ep.season === pS && ep.number <= pE)) {
-        add(watched, `${ep.season}:${ep.number}`, now);
+        add(watched, `${ep.season}:${ep.number}`, at);
       }
     }
   }
