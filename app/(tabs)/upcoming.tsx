@@ -2,7 +2,14 @@ import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Pressable, SectionList, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { EmptyState, Loading, Poster, ScreenTitle } from "../../components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  errorMessage,
+  Loading,
+  Poster,
+  ScreenTitle,
+} from "../../components/ui";
 import { useUpcoming } from "../../lib/queries";
 import type { Episode, Show } from "../../lib/types";
 
@@ -64,7 +71,7 @@ function formatAir(date: string): string {
 
 export default function UpcomingScreen() {
   const router = useRouter();
-  const { data: rows, isLoading } = useUpcoming();
+  const { data: rows, isLoading, isError, error, refetch } = useUpcoming();
 
   const sections = useMemo(() => {
     if (!rows) return [];
@@ -89,6 +96,12 @@ export default function UpcomingScreen() {
       <ScreenTitle title="Upcoming" subtitle="New episodes on the way" />
       {isLoading ? (
         <Loading />
+      ) : isError ? (
+        <ErrorState
+          title="Couldn't load upcoming episodes"
+          message={errorMessage(error)}
+          onRetry={() => refetch()}
+        />
       ) : sections.length === 0 ? (
         <EmptyState
           icon="calendar-outline"

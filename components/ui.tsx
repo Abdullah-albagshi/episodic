@@ -130,6 +130,7 @@ export function EpisodeProgressCard({
   totalCount,
   onPress,
   onMarkWatched,
+  marking = false,
 }: {
   show: Show;
   next: Episode | null;
@@ -137,6 +138,8 @@ export function EpisodeProgressCard({
   totalCount: number;
   onPress: () => void;
   onMarkWatched?: () => void;
+  /** Show a spinner on the mark-watched toggle while the mutation runs. */
+  marking?: boolean;
 }) {
   const caughtUpLabel =
     show.status === "completed"
@@ -177,11 +180,18 @@ export function EpisodeProgressCard({
             </View>
             {onMarkWatched ? (
               <Pressable
-                onPress={onMarkWatched}
+                onPress={marking ? undefined : onMarkWatched}
+                disabled={marking}
                 hitSlop={10}
                 className="active:opacity-60 pr-3"
               >
-                <View className="w-7 h-7 rounded-full border-2 border-muted" />
+                {marking ? (
+                  <View className="w-7 h-7 items-center justify-center">
+                    <ActivityIndicator color="#7c5cff" />
+                  </View>
+                ) : (
+                  <View className="w-7 h-7 rounded-full border-2 border-muted" />
+                )}
               </Pressable>
             ) : null}
           </View>

@@ -39,6 +39,10 @@ export const qk = {
   tmdbEpisodes: (id: number) => ["tmdb", "episodes", id] as const,
 };
 
+/** Artificial delay so fast local mutations still show a loading state. */
+const FAKE_LOADING_MS = 400;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Invalidate everything derived from the library/watch state. */
 function invalidateLibrary(client: QueryClient, showId?: number) {
   client.invalidateQueries({ queryKey: ["shows"] });
@@ -181,7 +185,7 @@ export function useSetShowStatus() {
 export function useToggleEpisode() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       showId,
       season,
       number,
@@ -191,7 +195,12 @@ export function useToggleEpisode() {
       season: number;
       number: number;
       watched: boolean;
-    }) => db.setEpisodeWatched(showId, season, number, watched),
+    }) => {
+      await Promise.all([
+        db.setEpisodeWatched(showId, season, number, watched),
+        sleep(FAKE_LOADING_MS),
+      ]);
+    },
     onSuccess: (_r, { showId }) => invalidateLibrary(client, showId),
   });
 }
@@ -199,7 +208,7 @@ export function useToggleEpisode() {
 export function useToggleSeason() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       showId,
       season,
       watched,
@@ -207,7 +216,12 @@ export function useToggleSeason() {
       showId: number;
       season: number;
       watched: boolean;
-    }) => db.setSeasonWatched(showId, season, watched),
+    }) => {
+      await Promise.all([
+        db.setSeasonWatched(showId, season, watched),
+        sleep(FAKE_LOADING_MS),
+      ]);
+    },
     onSuccess: (_r, { showId }) => invalidateLibrary(client, showId),
   });
 }

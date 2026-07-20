@@ -1,7 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { EmptyState, Loading, Poster, ScreenTitle } from "../../components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  errorMessage,
+  Loading,
+  Poster,
+  ScreenTitle,
+} from "../../components/ui";
 import { useStats } from "../../lib/queries";
 import { SHOW_STATUSES, STATUS_LABELS, type ShowStatus } from "../../lib/types";
 
@@ -56,13 +63,26 @@ function formatMemberSince(ts: number): string {
 }
 
 export default function ProfileScreen() {
-  const { data: stats, isLoading } = useStats();
+  const { data: stats, isLoading, isError, error, refetch } = useStats();
 
   if (isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
         <ScreenTitle title="Profile" subtitle="Your watch stats" />
         <Loading />
+      </SafeAreaView>
+    );
+  }
+
+  if (isError) {
+    return (
+      <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
+        <ScreenTitle title="Profile" subtitle="Your watch stats" />
+        <ErrorState
+          title="Couldn't load your stats"
+          message={errorMessage(error)}
+          onRetry={() => refetch()}
+        />
       </SafeAreaView>
     );
   }

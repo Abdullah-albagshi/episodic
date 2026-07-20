@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   Text,
@@ -10,7 +11,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { EmptyState, Poster, ScreenTitle } from "../../components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  errorMessage,
+  Loading,
+  Poster,
+  ScreenTitle,
+} from "../../components/ui";
 import { useAddShow, useShows, useTmdbSearch } from "../../lib/queries";
 import { useAppStore } from "../../lib/store";
 import type { TmdbSearchResult } from "../../lib/tmdb";
@@ -28,7 +36,13 @@ export default function SearchScreen() {
     [shows]
   );
 
-  const { data: results, isFetching, error } = useTmdbSearch(debounced, hasKey);
+  const {
+    data: results,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useTmdbSearch(debounced, hasKey);
   const addShow = useAddShow();
 
   useEffect(() => {
@@ -46,7 +60,13 @@ export default function SearchScreen() {
       status: "watching",
       added_at: Date.now(),
     };
-    addShow.mutate({ show });
+    addShow.mutate(
+      { show },
+      {
+        onError: (e) =>
+          Alert.alert("Couldn't add show", errorMessage(e)),
+      }
+    );
   }
 
   return (
@@ -75,12 +95,14 @@ export default function SearchScreen() {
           title="Add a TMDB API key"
           subtitle="Search uses The Movie Database. Add a free API key in Settings to start finding shows."
         />
-      ) : error ? (
-        <EmptyState
-          icon="alert-circle-outline"
-          title="Search error"
-          subtitle={(error as Error).message}
+      ) : isError ? (
+        <ErrorState
+          title="Search failed"
+          message={errorMessage(error)}
+          onRetry={() => refetch()}
         />
+      ) : isFetching && !results ? (
+        <Loading label="Searching…" />
       ) : results && results.length === 0 && debounced.trim() && !isFetching ? (
         <EmptyState
           icon="tv-outline"

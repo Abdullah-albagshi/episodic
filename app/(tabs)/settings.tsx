@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button, ScreenTitle } from "../../components/ui";
+import { Button, errorMessage, ScreenTitle } from "../../components/ui";
 import {
   useClearAll,
   useExportBackup,
@@ -41,7 +41,13 @@ export default function SettingsScreen() {
 
   const [key, setKey] = useState(apiKey ?? "");
   const [saved, setSaved] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<{
+    text: string;
+    error: boolean;
+  } | null>(null);
+
+  const ok = (text: string) => setStatus({ text, error: false });
+  const fail = (e: unknown) => setStatus({ text: errorMessage(e), error: true });
 
   const exportBackup = useExportBackup();
   const restoreBackup = useRestoreBackup();
@@ -60,8 +66,8 @@ export default function SettingsScreen() {
   function onExport() {
     setStatus(null);
     exportBackup.mutate(undefined, {
-      onSuccess: (msg) => setStatus(msg),
-      onError: (e) => setStatus((e as Error).message),
+      onSuccess: (msg) => ok(msg),
+      onError: (e) => fail(e),
     });
   }
 
@@ -83,18 +89,19 @@ export default function SettingsScreen() {
         text = await new File(asset.uri).text();
       }
       restoreBackup.mutate(text, {
-        onSuccess: () => setStatus("Backup restored"),
-        onError: (e) => setStatus((e as Error).message),
+        onSuccess: () => ok("Backup restored"),
+        onError: (e) => fail(e),
       });
-    } catch (e: any) {
-      setStatus(e?.message ?? "Restore failed");
+    } catch (e) {
+      fail(e);
     }
   }
 
   function onClear() {
     const doClear = () =>
       clearAll.mutate(undefined, {
-        onSuccess: () => setStatus("All data cleared"),
+        onSuccess: () => ok("All data cleared"),
+        onError: (e) => fail(e),
       });
     if (typeof window !== "undefined" && window.confirm) {
       if (window.confirm("Delete ALL shows and watch history? This cannot be undone."))
@@ -189,7 +196,13 @@ export default function SettingsScreen() {
         </Card>
 
         {status ? (
-          <Text className="text-success text-center mb-4">{status}</Text>
+          <Text
+            className={`text-center mb-4 ${
+              status.error ? "text-accent" : "text-success"
+            }`}
+          >
+            {status.text}
+          </Text>
         ) : null}
 
         <Text className="text-muted text-center text-xs mt-2">

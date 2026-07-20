@@ -12,6 +12,8 @@ import {
 import {
   EmptyState,
   EpisodeProgressCard,
+  ErrorState,
+  errorMessage,
   Loading,
   ScreenTitle,
 } from "../../components/ui";
@@ -30,7 +32,13 @@ const FILTER_LABELS: Record<LibraryFilter, string> = {
 
 export default function LibraryScreen() {
   const router = useRouter();
-  const { data: entries, isLoading } = useLibraryOverview();
+  const {
+    data: entries,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useLibraryOverview();
   const toggleEpisode = useToggleEpisode();
   const filter = useAppStore((s) => s.libraryFilter);
   const setFilter = useAppStore((s) => s.setLibraryFilter);
@@ -89,6 +97,10 @@ export default function LibraryScreen() {
             totalCount={entry.totalCount}
             onPress={() => openShow(entry)}
             onMarkWatched={entry.next ? () => markWatched(entry) : undefined}
+            marking={
+              toggleEpisode.isPending &&
+              toggleEpisode.variables?.showId === entry.show.id
+            }
           />
         );
     }
@@ -125,7 +137,13 @@ export default function LibraryScreen() {
         onChange={setFilter}
       />
 
-      {isLoading || !entries ? (
+      {isError && !entries ? (
+        <ErrorState
+          title="Couldn't load your library"
+          message={errorMessage(error)}
+          onRetry={() => refetch()}
+        />
+      ) : isLoading || !entries ? (
         <Loading />
       ) : filtered.length === 0 ? (
         <EmptyState

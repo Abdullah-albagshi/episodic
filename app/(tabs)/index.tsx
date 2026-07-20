@@ -5,6 +5,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   EmptyState,
   EpisodeProgressCard,
+  ErrorState,
+  errorMessage,
   Loading,
   ScreenTitle,
 } from "../../components/ui";
@@ -15,7 +17,13 @@ const STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000; // ~1 month
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { data: items, isLoading } = useContinueWatching();
+  const {
+    data: items,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useContinueWatching();
   const toggleEpisode = useToggleEpisode();
 
   const sections = useMemo(() => {
@@ -54,6 +62,12 @@ export default function HomeScreen() {
       <ScreenTitle title="Up next" subtitle="Continue watching your shows" />
       {isLoading ? (
         <Loading />
+      ) : isError ? (
+        <ErrorState
+          title="Couldn't load your queue"
+          message={errorMessage(error)}
+          onRetry={() => refetch()}
+        />
       ) : sections.length === 0 ? (
         <EmptyState
           icon="play-circle-outline"
@@ -79,6 +93,10 @@ export default function HomeScreen() {
               totalCount={item.totalCount}
               onPress={() => router.push(`/show/${item.show.id}`)}
               onMarkWatched={() => markWatched(item)}
+              marking={
+                toggleEpisode.isPending &&
+                toggleEpisode.variables?.showId === item.show.id
+              }
             />
           )}
         />

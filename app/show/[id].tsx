@@ -6,6 +6,7 @@ import {
 } from "expo-router";
 import { useLayoutEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -15,7 +16,10 @@ import {
 } from "react-native";
 import {
   Button,
+  EmptyState,
   EpisodeStill,
+  ErrorState,
+  errorMessage,
   Loading,
   Poster,
   ProgressBar,
@@ -69,10 +73,27 @@ export default function ShowDetailScreen() {
   const inLibrary = !!dbShow;
   const wantPreview = !showLoading && !dbShow;
 
-  const { data: dbEpisodes } = useEpisodes(showId, inLibrary);
-  const { data: previewDetail, isLoading: previewLoading } =
-    useTmdbShowDetail(showId, wantPreview);
-  const { data: previewEpisodes } = useTmdbEpisodes(showId, wantPreview);
+  const {
+    data: dbEpisodes,
+    isLoading: dbEpisodesLoading,
+    isError: dbEpisodesError,
+    error: dbEpisodesErr,
+    refetch: refetchDbEpisodes,
+  } = useEpisodes(showId, inLibrary);
+  const {
+    data: previewDetail,
+    isLoading: previewLoading,
+    isError: previewError,
+    error: previewErr,
+    refetch: refetchPreview,
+  } = useTmdbShowDetail(showId, wantPreview);
+  const {
+    data: previewEpisodes,
+    isLoading: previewEpisodesLoading,
+    isError: previewEpisodesError,
+    error: previewEpisodesErr,
+    refetch: refetchPreviewEpisodes,
+  } = useTmdbEpisodes(showId, wantPreview);
 
   const toggleEpisode = useToggleEpisode();
   const toggleSeason = useToggleSeason();
@@ -97,6 +118,10 @@ export default function ShowDetailScreen() {
   }, [dbShow, previewDetail]);
 
   const episodes = inLibrary ? dbEpisodes ?? [] : previewEpisodes ?? [];
+  const episodesLoading = inLibrary ? dbEpisodesLoading : previewEpisodesLoading;
+  const episodesError = inLibrary ? dbEpisodesError : previewEpisodesError;
+  const episodesErr = inLibrary ? dbEpisodesErr : previewEpisodesErr;
+  const refetchEpisodes = inLibrary ? refetchDbEpisodes : refetchPreviewEpisodes;
 
   // Explicit per-season collapse choices. When a season has no override we fall
   // back to the default: collapsed once fully watched, expanded otherwise.
@@ -169,12 +194,18 @@ export default function ShowDetailScreen() {
 
   function onAdd() {
     if (!show) return;
-    addShow.mutate({ show, episodes: previewEpisodes });
+    addShow.mutate(
+      { show, episodes: previewEpisodes },
+      { onError: (e) => Alert.alert("Couldn't add show", errorMessage(e)) }
+    );
   }
 
   function confirmRemove() {
     const doRemove = () =>
-      removeShow.mutate(showId, { onSuccess: () => router.back() });
+      removeShow.mutate(showId, {
+        onSuccess: () => router.back(),
+        onError: (e) => Alert.alert("Couldn't remove show", errorMessage(e)),
+      });
     if (typeof window !== "undefined" && window.confirm) {
       if (window.confirm("Remove this show and its watch history?")) doRemove();
     } else {
@@ -189,6 +220,19 @@ export default function ShowDetailScreen() {
     return (
       <View className="flex-1 bg-bg">
         <Loading label="Loading show…" />
+      </View>
+    );
+  }
+
+  // Not in the library and the TMDB preview failed: there's no show to show.
+  if (wantPreview && previewError && !previewDetail) {
+    return (
+      <View className="flex-1 bg-bg">
+        <ErrorState
+          title="Couldn't load this show"
+          message={errorMessage(previewErr)}
+          onRetry={() => refetchPreview()}
+        />
       </View>
     );
   }
@@ -214,6 +258,10 @@ export default function ShowDetailScreen() {
         renderSectionHeader={({ section }) => {
           const s = section as unknown as Section;
           const allWatched = s.watched === s.total && s.total > 0;
+          const seasonPending =
+            toggleSeason.isPending &&
+            toggleSeason.variables?.showId === showId &&
+            toggleSeason.variables?.season === s.season;
           return (
             <View className="flex-row items-center justify-between px-4 pt-5 pb-2 bg-bg">
               <Pressable
@@ -234,15 +282,22 @@ export default function ShowDetailScreen() {
               </Pressable>
               {inLibrary ? (
                 <Pressable
-                  onPress={() => onToggleSeason(s)}
+                  onPress={seasonPending ? undefined : () => onToggleSeason(s)}
+                  disabled={seasonPending}
                   hitSlop={8}
                   className="flex-row items-center gap-1 active:opacity-70 pl-2"
                 >
-                  <Ionicons
-                    name={allWatched ? "checkmark-done-circle" : "ellipse-outline"}
-                    size={20}
-                    color={allWatched ? "#3ecf8e" : "#9a9ab0"}
-                  />
+                  {seasonPending ? (
+                    <ActivityIndicator color="#7c5cff" />
+                  ) : (
+                    <Ionicons
+                      name={
+                        allWatched ? "checkmark-done-circle" : "ellipse-outline"
+                      }
+                      size={20}
+                      color={allWatched ? "#3ecf8e" : "#9a9ab0"}
+                    />
+                  )}
                 </Pressable>
               ) : null}
             </View>
@@ -252,10 +307,15 @@ export default function ShowDetailScreen() {
           const watched = item.watched_at != null;
           const watchedDate =
             item.watched_at != null ? formatWatchedDate(item.watched_at) : null;
+          const episodePending =
+            toggleEpisode.isPending &&
+            toggleEpisode.variables?.showId === item.show_id &&
+            toggleEpisode.variables?.season === item.season &&
+            toggleEpisode.variables?.number === item.number;
           return (
             <Pressable
-              onPress={() => onToggleEpisode(item)}
-              disabled={!inLibrary}
+              onPress={() => (episodePending ? undefined : onToggleEpisode(item))}
+              disabled={!inLibrary || episodePending}
               className="flex-row items-center px-4 py-2.5 active:opacity-70"
             >
               <View
@@ -263,7 +323,9 @@ export default function ShowDetailScreen() {
                   watched ? "bg-success" : "border border-border"
                 }`}
               >
-                {watched ? (
+                {episodePending ? (
+                  <ActivityIndicator color="#7c5cff" />
+                ) : watched ? (
                   <Ionicons name="checkmark" size={15} color="#0b0b12" />
                 ) : (
                   <Text className="text-muted text-[11px]">{item.number}</Text>
@@ -302,9 +364,21 @@ export default function ShowDetailScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
         ListEmptyComponent={
           episodes.length === 0 ? (
-            <Text className="text-muted text-center px-8 py-10">
-              No episode data available for this show.
-            </Text>
+            episodesLoading ? (
+              <Loading label="Loading episodes…" />
+            ) : episodesError ? (
+              <ErrorState
+                title="Couldn't load episodes"
+                message={errorMessage(episodesErr)}
+                onRetry={() => refetchEpisodes()}
+              />
+            ) : (
+              <EmptyState
+                icon="tv-outline"
+                title="No episodes yet"
+                subtitle="No episode data is available for this show."
+              />
+            )
           ) : null
         }
       />
