@@ -160,13 +160,13 @@ export function EpisodeProgressCard({
         </Text>
 
         {next ? (
-          <View className="flex-row items-center bg-surface2 rounded-xl p-2 mt-2">
+          <View className="flex-row items-center bg-surface2 rounded-xl mt-2 overflow-hidden">
             <EpisodeStill
               path={next.still_path}
-              className="w-[52px] h-[30px] rounded-md"
+              className="w-[104px] h-[60px]"
             />
-            <View className="flex-1 px-2">
-              <Text className="text-text font-semibold text-xs">
+            <View className="flex-1 px-3 py-2">
+              <Text className="text-text font-semibold text-[13px]">
                 {episodeLabel(next.season, next.number)}
               </Text>
               <Text numberOfLines={1} className="text-muted text-xs mt-0.5">
@@ -177,7 +177,7 @@ export function EpisodeProgressCard({
               <Pressable
                 onPress={onMarkWatched}
                 hitSlop={10}
-                className="active:opacity-60"
+                className="active:opacity-60 pr-3"
               >
                 <View className="w-7 h-7 rounded-full border-2 border-muted" />
               </Pressable>

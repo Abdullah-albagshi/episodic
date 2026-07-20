@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   LibraryCompactRow,
   LibraryGridItem,
-  LibraryViewSwitcher,
+  LibraryOptionsMenu,
 } from "../../components/library";
 import {
   EmptyState,
@@ -132,7 +132,7 @@ export default function LibraryScreen() {
           })}
         </ScrollView>
         <View className="pl-2 pr-4">
-          <LibraryViewSwitcher value={view} onChange={setView} />
+          <LibraryOptionsMenu value={view} onChange={setView} />
         </View>
       </View>
 

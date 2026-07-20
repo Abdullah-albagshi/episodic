@@ -555,19 +555,29 @@ export async function getLibraryOverview(): Promise<LibraryEntry[]> {
   return out;
 }
 
-/** Aired-in-the-future episodes for tracked (non-dropped) shows, soonest first. */
+/**
+ * Episodes for tracked (non-dropped) shows that aired in the last week or are
+ * still to come, soonest first. The past-week window powers the "Released last
+ * week" bucket in the Upcoming screen; the UI groups everything else by date.
+ */
 export async function getUpcoming(): Promise<
   { show: Show; episode: Episode }[]
 > {
   const shows = (await backend.getShows()).filter((s) => s.status !== "dropped");
-  const now = Date.now();
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  ).getTime();
+  const cutoff = startOfToday - 7 * 86_400_000; // include the past week
   const out: { show: Show; episode: Episode }[] = [];
   for (const show of shows) {
     const eps = await backend.getEpisodes(show.id);
     for (const e of eps) {
       if (e.air_date) {
         const t = Date.parse(e.air_date);
-        if (!Number.isNaN(t) && t >= now) out.push({ show, episode: e });
+        if (!Number.isNaN(t) && t >= cutoff) out.push({ show, episode: e });
       }
     }
   }

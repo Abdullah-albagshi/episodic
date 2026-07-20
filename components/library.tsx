@@ -1,48 +1,106 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import { Modal, Pressable, Text, View } from "react-native";
 import type { LibraryView } from "../lib/store";
 import type { LibraryEntry } from "../lib/types";
 import { Poster, ProgressBar } from "./ui";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-const VIEW_OPTIONS: { view: LibraryView; icon: keyof typeof Ionicons.glyphMap }[] =
-  [
-    { view: "grid", icon: "grid-outline" },
-    { view: "list", icon: "list-outline" },
-    { view: "compact", icon: "reorder-four-outline" },
-  ];
+const VIEW_OPTIONS: {
+  view: LibraryView;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { view: "list", label: "List", icon: "list-outline" },
+  { view: "compact", label: "Compact list", icon: "reorder-four-outline" },
+  { view: "grid", label: "Grid", icon: "grid-outline" },
+];
 
-/** Segmented control for choosing the Library layout. */
-export function LibraryViewSwitcher({
+/**
+ * Three-dots trigger that opens a popover with the Library layout options.
+ * Keeps the view control out of the filter row so it doesn't crowd small
+ * screens. The popover is anchored just under the trigger button.
+ */
+export function LibraryOptionsMenu({
   value,
   onChange,
 }: {
   value: LibraryView;
   onChange: (view: LibraryView) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState({ top: 0, right: 16 });
+  const btnRef = useRef<View>(null);
+
+  function openMenu() {
+    const node = btnRef.current;
+    if (node?.measureInWindow) {
+      node.measureInWindow((x, y, width, height) => {
+        setAnchor({ top: y + height + 6, right: 16 });
+        setOpen(true);
+      });
+    } else {
+      setOpen(true);
+    }
+  }
+
   return (
-    <View className="flex-row bg-surface rounded-full p-1">
-      {VIEW_OPTIONS.map(({ view, icon }) => {
-        const active = view === value;
-        return (
-          <Pressable
-            key={view}
-            onPress={() => onChange(view)}
-            hitSlop={4}
-            className={`w-8 h-8 rounded-full items-center justify-center ${
-              active ? "bg-primary" : ""
-            }`}
+    <>
+      <Pressable
+        ref={btnRef}
+        onPress={openMenu}
+        hitSlop={8}
+        className="w-9 h-9 rounded-full bg-surface items-center justify-center active:opacity-70"
+      >
+        <Ionicons name="ellipsis-horizontal" size={18} color="#f2f2f7" />
+      </Pressable>
+
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        <Pressable className="flex-1" onPress={() => setOpen(false)}>
+          <View
+            style={{ position: "absolute", top: anchor.top, right: anchor.right }}
+            className="w-64 bg-surface rounded-2xl p-3 border border-border"
           >
-            <Ionicons
-              name={icon}
-              size={16}
-              color={active ? "#fff" : "#9a9ab0"}
-            />
-          </Pressable>
-        );
-      })}
-    </View>
+            <Text className="text-muted text-xs font-semibold uppercase tracking-wide mb-2">
+              View
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+              {VIEW_OPTIONS.map(({ view, label, icon }) => {
+                const active = view === value;
+                return (
+                  <Pressable
+                    key={view}
+                    onPress={() => onChange(view)}
+                    className={`h-9 px-3 rounded-full flex-row items-center gap-1.5 ${
+                      active ? "bg-primary" : "bg-surface2"
+                    }`}
+                  >
+                    <Ionicons
+                      name={icon}
+                      size={14}
+                      color={active ? "#fff" : "#9a9ab0"}
+                    />
+                    <Text
+                      className={`text-xs font-medium ${
+                        active ? "text-white" : "text-muted"
+                      }`}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
