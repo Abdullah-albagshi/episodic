@@ -59,6 +59,10 @@ export interface TvTimeFiles {
   userShowData?: string;
   /** followed_tv_show.csv — active/archived status per show. */
   followed?: string;
+  /** user_show_special_status.csv — e.g. for_later → plan. */
+  specialStatus?: string;
+  /** user_statistics.csv — aggregate totals when tracking-stats is missing. */
+  userStatistics?: string;
 }
 
 /** One row of user_tv_show_data.csv. */
@@ -76,6 +80,24 @@ export interface FollowedDatum {
   active: boolean;
   archived: boolean;
 }
+
+/** One row of user_show_special_status.csv. */
+export interface SpecialStatusDatum {
+  tvdbId: number | null;
+  name: string;
+  /** Raw TV Time status string, e.g. "for_later". */
+  status: string;
+}
+
+/** Safe CSV basenames we pull from a GDPR ZIP (everything else is ignored). */
+const SAFE_ZIP_FILES = new Set([
+  "tracking-prod-records-v2.csv",
+  "tracking-prod-records.csv",
+  "followed_tv_show.csv",
+  "user_tv_show_data.csv",
+  "user_show_special_status.csv",
+  "user_statistics.csv",
+]);
 
 export interface ImportProgress {
   current: number;
@@ -395,6 +417,123 @@ export function parseFollowedShows(text: string): FollowedDatum[] {
   return out;
 }
 
+/**
+ * Parse user_show_special_status.csv. The useful value for Episodic is
+ * `for_later`, which maps to plan-to-watch.
+ */
+export function parseSpecialStatus(text: string): SpecialStatusDatum[] {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return [];
+  const h = rows[0];
+  const nameIdx = findColumn(h, ["tvshowname", "seriesname", "showname", "title"]);
+  const idIdx = findColumn(h, ["tvshowid", "showid", "seriesid"]);
+  const statusIdx = findColumn(h, ["status"], true);
+  if ((nameIdx === -1 && idIdx === -1) || statusIdx === -1) return [];
+  const out: SpecialStatusDatum[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const c = rows[r];
+    const name = (c[nameIdx] ?? "").trim();
+    const tvdbId = idIdx >= 0 ? toInt(c[idIdx]) : null;
+    const status = (c[statusIdx] ?? "").trim().toLowerCase();
+    if ((!name && tvdbId == null) || !status) continue;
+    out.push({ tvdbId, name, status });
+  }
+  return out;
+}
+
+/**
+ * Parse user_statistics.csv for aggregate totals used when the tracking log
+ * has no `tracking-stats` row. `time_spent` is treated as seconds.
+ */
+export function parseUserStatistics(text: string): TvTimeStats | null {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return null;
+  const h = rows[0];
+  const epIdx = findColumn(h, ["nbepisodeswatched", "episodeswatched"]);
+  const timeIdx = findColumn(h, ["timespent"]);
+  if (epIdx === -1 && timeIdx === -1) return null;
+  // Prefer the first data row that has at least one usable value.
+  for (let r = 1; r < rows.length; r++) {
+    const c = rows[r];
+    const episodeWatchCount = epIdx >= 0 ? toInt(c[epIdx]) : null;
+    const totalRuntimeSeconds = timeIdx >= 0 ? toInt(c[timeIdx]) : null;
+    if (episodeWatchCount != null || totalRuntimeSeconds != null) {
+      return { episodeWatchCount, totalRuntimeSeconds };
+    }
+  }
+  return null;
+}
+
+/** Basename of a path, lowercased (ZIP entries may include folders). */
+function csvBasename(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/");
+  return (parts[parts.length - 1] ?? path).toLowerCase();
+}
+
+/**
+ * Map named CSV texts (from a ZIP or multi-file picker) onto TvTimeFiles.
+ * Throws if no tracking log is present.
+ */
+export function collectTvTimeFiles(
+  entries: { name: string; text: string }[]
+): TvTimeFiles {
+  let tracking: string | undefined;
+  let trackingV1: string | undefined;
+  let userShowData: string | undefined;
+  let followed: string | undefined;
+  let specialStatus: string | undefined;
+  let userStatistics: string | undefined;
+  const unclassified: string[] = [];
+
+  for (const entry of entries) {
+    const name = csvBasename(entry.name);
+    const text = entry.text;
+    if (name.includes("records-v2")) tracking = text;
+    else if (name.includes("tracking-prod-records")) trackingV1 = text;
+    else if (name.includes("user_tv_show_data")) userShowData = text;
+    else if (name.includes("followed_tv_show")) followed = text;
+    else if (name.includes("user_show_special_status")) specialStatus = text;
+    else if (name.includes("user_statistics")) userStatistics = text;
+    else if (name.endsWith(".csv")) unclassified.push(text);
+  }
+
+  if (!tracking) tracking = trackingV1;
+  if (!tracking && unclassified.length === 1) tracking = unclassified[0];
+
+  if (!tracking) {
+    throw new Error(
+      "Couldn't find tracking-prod-records-v2.csv in the selected export."
+    );
+  }
+  return { tracking, userShowData, followed, specialStatus, userStatistics };
+}
+
+/**
+ * Read a TV Time GDPR ZIP and return only the safe CSVs we import.
+ * Sensitive auth/device/identity files are never loaded into memory as text.
+ */
+export async function collectTvTimeFilesFromZip(
+  data: ArrayBuffer
+): Promise<TvTimeFiles> {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(data);
+  const entries: { name: string; text: string }[] = [];
+
+  for (const [path, file] of Object.entries(zip.files)) {
+    if (file.dir) continue;
+    const base = csvBasename(path);
+    if (!base.endsWith(".csv") || !SAFE_ZIP_FILES.has(base)) continue;
+    entries.push({ name: base, text: await file.async("string") });
+  }
+
+  if (entries.length === 0) {
+    throw new Error(
+      "No usable TV Time CSVs found in this ZIP. Make sure you selected the official GDPR export."
+    );
+  }
+  return collectTvTimeFiles(entries);
+}
+
 function normalizeTitle(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -472,11 +611,13 @@ function resolveWatched(
 }
 
 /** Enrich parsed shows with authoritative status + expected-seen from the
- * companion CSVs, matching on TVDB id first, then normalized title. */
+ * companion CSVs, matching on TVDB id first, then normalized title.
+ * Also adds companion-only shows (e.g. for_later with no watch rows). */
 function enrichEntries(
   parsed: ParsedShow[],
   userData: UserShowDatum[],
-  followed: FollowedDatum[]
+  followed: FollowedDatum[],
+  specialStatus: SpecialStatusDatum[]
 ) {
   const seenByTvdb = new Map<number, number>();
   const seenByName = new Map<string, number>();
@@ -485,20 +626,63 @@ function enrichEntries(
     if (u.name) seenByName.set(normalizeTitle(u.name), u.seen);
   }
 
-  // Only override status when the export is informative: archived => completed,
-  // actively followed => watching. Leave ambiguous rows to the tracking log's
-  // own flags so we never wrongly downgrade a show with watch history.
+  // Priority: archived → completed, for_later → plan, actively followed →
+  // watching. Leave ambiguous rows to the tracking log's own flags.
   const statusByTvdb = new Map<number, ShowStatus>();
   const statusByName = new Map<string, ShowStatus>();
+  const setStatus = (tvdbId: number | null, name: string, status: ShowStatus) => {
+    if (tvdbId != null) statusByTvdb.set(tvdbId, status);
+    if (name) statusByName.set(normalizeTitle(name), status);
+  };
+
   for (const f of followed) {
-    const status: ShowStatus | null = f.archived
-      ? "completed"
-      : f.active
-      ? "watching"
-      : null;
-    if (status == null) continue;
-    if (f.tvdbId != null) statusByTvdb.set(f.tvdbId, status);
-    if (f.name) statusByName.set(normalizeTitle(f.name), status);
+    if (f.archived) setStatus(f.tvdbId, f.name, "completed");
+    else if (f.active) setStatus(f.tvdbId, f.name, "watching");
+  }
+
+  for (const s of specialStatus) {
+    if (s.status !== "for_later") continue;
+    // Don't demote an archived/completed show back to plan.
+    const existing =
+      (s.tvdbId != null ? statusByTvdb.get(s.tvdbId) : undefined) ??
+      (s.name ? statusByName.get(normalizeTitle(s.name)) : undefined);
+    if (existing === "completed") continue;
+    setStatus(s.tvdbId, s.name, "plan");
+  }
+
+  const hasShow = (tvdbId: number | null, name: string) => {
+    const nt = name ? normalizeTitle(name) : "";
+    return parsed.some(
+      (p) =>
+        (tvdbId != null && p.tvdbId === tvdbId) ||
+        (nt && normalizeTitle(p.name) === nt)
+    );
+  };
+
+  const addMissing = (
+    tvdbId: number | null,
+    name: string,
+    status: ShowStatus
+  ) => {
+    if ((!name && tvdbId == null) || hasShow(tvdbId, name)) return;
+    parsed.push({
+      name: name || `Show ${tvdbId}`,
+      tvdbId,
+      status,
+      episodes: [],
+      expectedSeen:
+        (tvdbId != null ? seenByTvdb.get(tvdbId) : undefined) ??
+        (name ? seenByName.get(normalizeTitle(name)) : undefined),
+    });
+  };
+
+  // Plan-to-watch / followed shows that never appear in the tracking log.
+  for (const s of specialStatus) {
+    if (s.status === "for_later") addMissing(s.tvdbId, s.name, "plan");
+  }
+  for (const f of followed) {
+    if (f.archived) addMissing(f.tvdbId, f.name, "completed");
+    else if (f.active) addMissing(f.tvdbId, f.name, "watching");
   }
 
   for (const entry of parsed) {
@@ -520,12 +704,27 @@ export async function runTvTimeImport(
   onProgress?: (p: ImportProgress) => void
 ): Promise<ImportSummary> {
   const parsed = parseTvTimeCsv(files.tracking);
-  const stats = parseTvTimeStats(files.tracking);
+  let stats = parseTvTimeStats(files.tracking);
+  // Fill gaps from user_statistics.csv when tracking-stats is incomplete.
+  if (files.userStatistics) {
+    const fallback = parseUserStatistics(files.userStatistics);
+    if (fallback) {
+      stats = {
+        totalRuntimeSeconds:
+          stats?.totalRuntimeSeconds ?? fallback.totalRuntimeSeconds,
+        episodeWatchCount:
+          stats?.episodeWatchCount ?? fallback.episodeWatchCount,
+      };
+    }
+  }
   const userData = files.userShowData
     ? parseUserShowData(files.userShowData)
     : [];
   const followed = files.followed ? parseFollowedShows(files.followed) : [];
-  enrichEntries(parsed, userData, followed);
+  const specialStatus = files.specialStatus
+    ? parseSpecialStatus(files.specialStatus)
+    : [];
+  enrichEntries(parsed, userData, followed, specialStatus);
 
   const summary: ImportSummary = {
     matched: [],

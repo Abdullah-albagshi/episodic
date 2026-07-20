@@ -3,9 +3,14 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { Button, EmptyState } from "../components/ui";
+import {
+  collectTvTimeFiles,
+  collectTvTimeFilesFromZip,
+  type ImportProgress,
+  type TvTimeFiles,
+} from "../lib/import/tvtime";
 import { useImportTvTime } from "../lib/queries";
 import { useAppStore } from "../lib/store";
-import type { ImportProgress, TvTimeFiles } from "../lib/import/tvtime";
 
 function formatRuntime(seconds: number | null): string | null {
   if (!seconds || seconds <= 0) return null;
@@ -21,23 +26,57 @@ function formatRuntime(seconds: number | null): string | null {
   return parts.join(" ");
 }
 
-async function readAsset(asset: any): Promise<string> {
-  if (asset.uri.startsWith("blob:") || asset.uri.startsWith("data:") || asset.file) {
+async function readAssetText(asset: any): Promise<string> {
+  if (
+    asset.uri.startsWith("blob:") ||
+    asset.uri.startsWith("data:") ||
+    asset.file
+  ) {
     return await (await fetch(asset.uri)).text();
   }
   const { File } = require("expo-file-system");
   return await new File(asset.uri).text();
 }
 
+async function readAssetBytes(asset: any): Promise<ArrayBuffer> {
+  if (
+    asset.uri.startsWith("blob:") ||
+    asset.uri.startsWith("data:") ||
+    asset.file
+  ) {
+    return await (await fetch(asset.uri)).arrayBuffer();
+  }
+  const { File } = require("expo-file-system");
+  const bytes: Uint8Array = await new File(asset.uri).bytes();
+  // Copy into a plain ArrayBuffer (Uint8Array.buffer may be SharedArrayBuffer).
+  return bytes.slice().buffer;
+}
+
+function isZipAsset(asset: any): boolean {
+  const name = (asset.name ?? "").toLowerCase();
+  const mime = (asset.mimeType ?? "").toLowerCase();
+  return (
+    name.endsWith(".zip") ||
+    mime.includes("zip") ||
+    mime === "application/x-zip-compressed"
+  );
+}
+
 /**
- * Let the user pick one or more files from their GDPR export and sort them by
- * filename. Only the tracking log is required; the companion files improve
- * status and validation. A single arbitrary CSV is still treated as tracking.
+ * Let the user pick the GDPR ZIP (preferred) or one/more CSVs. The ZIP path
+ * auto-pulls companion files; CSV multi-select keeps the older workflow.
  */
 async function pickImportFiles(): Promise<TvTimeFiles | null> {
   const DocumentPicker = require("expo-document-picker");
   const res = await DocumentPicker.getDocumentAsync({
-    type: ["text/csv", "text/comma-separated-values", "application/vnd.ms-excel", "*/*"],
+    type: [
+      "application/zip",
+      "application/x-zip-compressed",
+      "text/csv",
+      "text/comma-separated-values",
+      "application/vnd.ms-excel",
+      "*/*",
+    ],
     copyToCacheDirectory: true,
     multiple: true,
   });
@@ -45,32 +84,19 @@ async function pickImportFiles(): Promise<TvTimeFiles | null> {
   const assets: any[] = res.assets ?? [];
   if (assets.length === 0) return null;
 
-  let tracking: string | undefined;
-  let trackingV1: string | undefined;
-  let userShowData: string | undefined;
-  let followed: string | undefined;
-  const unclassified: string[] = [];
+  const zipAsset = assets.find(isZipAsset);
+  if (zipAsset) {
+    return collectTvTimeFilesFromZip(await readAssetBytes(zipAsset));
+  }
 
+  const entries: { name: string; text: string }[] = [];
   for (const asset of assets) {
-    const name = (asset.name ?? "").toLowerCase();
-    const text = await readAsset(asset);
-    if (name.includes("records-v2")) tracking = text;
-    else if (name.includes("tracking-prod-records")) trackingV1 = text;
-    else if (name.includes("user_tv_show_data")) userShowData = text;
-    else if (name.includes("followed_tv_show")) followed = text;
-    else unclassified.push(text);
+    entries.push({
+      name: asset.name ?? "export.csv",
+      text: await readAssetText(asset),
+    });
   }
-
-  // Fall back to the v1 log, then to a lone unclassified CSV (legacy behavior).
-  if (!tracking) tracking = trackingV1;
-  if (!tracking && unclassified.length === 1) tracking = unclassified[0];
-
-  if (!tracking) {
-    throw new Error(
-      "Couldn't find tracking-prod-records-v2.csv among the selected files."
-    );
-  }
-  return { tracking, userShowData, followed };
+  return collectTvTimeFiles(entries);
 }
 
 export default function ImportScreen() {
@@ -184,7 +210,11 @@ export default function ImportScreen() {
                       <Text className="text-muted"> → {m.matchedTitle}</Text>
                     ) : null}
                   </Text>
-                  <Text className={partial ? "text-warning ml-2" : "text-success ml-2"}>
+                  <Text
+                    className={
+                      partial ? "text-warning ml-2" : "text-success ml-2"
+                    }
+                  >
                     {m.watched}
                     {partial ? `/${m.expected}` : ""}
                   </Text>
@@ -236,27 +266,36 @@ export default function ImportScreen() {
         </Text>
         <Text className="text-muted mt-2 leading-5">
           TV Time is shutting down on July 15, 2026 and will delete all user
-          data. Export your data from TV Time's GDPR tool, then select the CSV
-          files here. Episodic matches each show against TMDB and restores your
+          data. Export your data from TV Time's GDPR tool, then select the ZIP
+          here. Episodic matches each show against TMDB and restores your
           watched episodes.
         </Text>
       </View>
 
       <View className="bg-surface rounded-2xl p-4 mb-4">
-        <Step n={1} text="In TV Time, request your data export (GDPR download)." />
-        <Step n={2} text="Unzip it. The key file is tracking-prod-records-v2.csv." />
+        <Step
+          n={1}
+          text="Request your data export from TV Time's GDPR download page."
+        />
+        <Step
+          n={2}
+          text="Select the original GDPR ZIP — no need to unzip it."
+        />
         <Step
           n={3}
-          text="For best results also select user_tv_show_data.csv and followed_tv_show.csv."
+          text="Or pick individual CSVs (tracking-prod-records-v2.csv plus companions)."
         />
-        <Step n={4} text="Pick the file(s) below to start the import." />
       </View>
 
       {error ? (
         <Text className="text-accent text-center mb-3">{error}</Text>
       ) : null}
 
-      <Button label="Select CSV files" icon="document-outline" onPress={start} />
+      <Button
+        label="Select GDPR ZIP or CSVs"
+        icon="document-outline"
+        onPress={start}
+      />
     </ScrollView>
   );
 }
