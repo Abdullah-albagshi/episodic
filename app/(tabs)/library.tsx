@@ -5,12 +5,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { EmptyState, Loading, Poster, ScreenTitle } from "../../components/ui";
 import { useShows } from "../../lib/queries";
 import { useAppStore, type LibraryFilter } from "../../lib/store";
-import { SHOW_STATUSES, STATUS_LABELS } from "../../lib/types";
+import { SHOW_STATUSES } from "../../lib/types";
 
 const FILTERS: LibraryFilter[] = ["all", ...SHOW_STATUSES];
 const FILTER_LABELS: Record<LibraryFilter, string> = {
   all: "All",
-  ...STATUS_LABELS,
+  watching: "Watching",
+  plan: "Plan",
+  completed: "Completed",
+  dropped: "Dropped",
 };
 
 export default function LibraryScreen() {
@@ -24,41 +27,57 @@ export default function LibraryScreen() {
     return filter === "all" ? shows : shows.filter((s) => s.status === filter);
   }, [shows, filter]);
 
+  const counts = useMemo(() => {
+    const c: Record<LibraryFilter, number> = {
+      all: shows?.length ?? 0,
+      watching: 0,
+      plan: 0,
+      completed: 0,
+      dropped: 0,
+    };
+    for (const s of shows ?? []) c[s.status] += 1;
+    return c;
+  }, [shows]);
+
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
       <ScreenTitle title="Library" subtitle="Every show you track" />
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={true}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
-        className="mb-2 "
-      >
-        {FILTERS.map((f) => {
-          const active = f === filter;
-          const count =
-            f === "all"
-              ? shows?.length ?? 0
-              : shows?.filter((s) => s.status === f).length ?? 0;
-          return (
-            <Pressable
-              key={f}
-              onPress={() => setFilter(f)}
-              className={`h-9 px-3 rounded-full flex-row items-center ${
-                active ? "bg-primary" : "bg-surface"
-              }`}
-            >
-              <Text
-                className={`font-medium ${
-                  active ? "text-white" : "text-muted"
+      <View className="mb-3">
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          {FILTERS.map((f) => {
+            const active = f === filter;
+            const count = counts[f];
+            return (
+              <Pressable
+                key={f}
+                onPress={() => setFilter(f)}
+                className={`h-9 px-3 rounded-full flex-row items-center ${
+                  active ? "bg-primary" : "bg-surface"
                 }`}
               >
-                {FILTER_LABELS[f]} {count > 0 ? `· ${count}` : ""}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+                <Text
+                  className={`font-medium ${
+                    active ? "text-white" : "text-muted"
+                  }`}
+                >
+                  {FILTER_LABELS[f]}
+                  {count > 0 ? ` · ${count}` : ""}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       {isLoading || !shows ? (
         <Loading />
