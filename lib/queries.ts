@@ -156,6 +156,7 @@ export function useAddShow() {
         ...show,
         status: "watching",
         added_at: Date.now(),
+        source: show.source ?? "manual",
       });
       const eps = episodes ?? (await getAllEpisodes(show.id));
       await db.upsertEpisodes(eps);

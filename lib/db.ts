@@ -4,6 +4,7 @@ import type {
   Episode,
   ExportBundle,
   LibraryEntry,
+  MediaSource,
   ProfileStats,
   Show,
   ShowStatus,
@@ -17,6 +18,14 @@ export const AVG_EPISODE_MINUTES = 42;
 
 /** Setting key holding TV Time's exact total watch time (seconds) from import. */
 export const SETTING_TVTIME_RUNTIME_SEC = "tvtime_total_runtime_sec";
+
+function normalizeShow(row: Show | Record<string, unknown>): Show {
+  const s = row as Show;
+  return {
+    ...s,
+    source: (s.source === "tvtime" ? "tvtime" : "manual") as MediaSource,
+  };
+}
 
 /**
  * Storage layer for Episodic.
@@ -83,7 +92,8 @@ function createSqliteBackend(): Backend {
           overview TEXT,
           first_air_date TEXT,
           status TEXT NOT NULL DEFAULT 'watching',
-          added_at INTEGER NOT NULL
+          added_at INTEGER NOT NULL,
+          source TEXT NOT NULL DEFAULT 'manual'
         );
         CREATE TABLE IF NOT EXISTS episodes (
           show_id INTEGER NOT NULL,
@@ -101,11 +111,19 @@ function createSqliteBackend(): Backend {
         );
       `);
       // Add columns introduced after the initial schema for existing databases.
-      const cols: { name: string }[] = await d.getAllAsync(
+      const epCols: { name: string }[] = await d.getAllAsync(
         "PRAGMA table_info(episodes)"
       );
-      if (!cols.some((c) => c.name === "still_path")) {
+      if (!epCols.some((c) => c.name === "still_path")) {
         await d.execAsync("ALTER TABLE episodes ADD COLUMN still_path TEXT");
+      }
+      const showCols: { name: string }[] = await d.getAllAsync(
+        "PRAGMA table_info(shows)"
+      );
+      if (!showCols.some((c) => c.name === "source")) {
+        await d.execAsync(
+          "ALTER TABLE shows ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"
+        );
       }
     },
 
@@ -128,13 +146,13 @@ function createSqliteBackend(): Backend {
 
     async getShows(status) {
       const d = await db();
-      if (status) {
-        return d.getAllAsync(
-          "SELECT * FROM shows WHERE status = ? ORDER BY added_at DESC",
-          [status]
-        );
-      }
-      return d.getAllAsync("SELECT * FROM shows ORDER BY added_at DESC");
+      const rows = status
+        ? await d.getAllAsync(
+            "SELECT * FROM shows WHERE status = ? ORDER BY added_at DESC",
+            [status]
+          )
+        : await d.getAllAsync("SELECT * FROM shows ORDER BY added_at DESC");
+      return (rows as Show[]).map(normalizeShow);
     },
 
     async getShow(id) {
@@ -142,19 +160,20 @@ function createSqliteBackend(): Backend {
       const row = await d.getFirstAsync("SELECT * FROM shows WHERE id = ?", [
         id,
       ]);
-      return (row as Show) ?? null;
+      return row ? normalizeShow(row as Show) : null;
     },
 
     async upsertShow(show) {
       const d = await db();
       await d.runAsync(
-        `INSERT INTO shows (id, title, poster_path, overview, first_air_date, status, added_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO shows (id, title, poster_path, overview, first_air_date, status, added_at, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            poster_path = excluded.poster_path,
            overview = excluded.overview,
-           first_air_date = excluded.first_air_date`,
+           first_air_date = excluded.first_air_date,
+           source = COALESCE(excluded.source, shows.source)`,
         [
           show.id,
           show.title,
@@ -163,6 +182,7 @@ function createSqliteBackend(): Backend {
           show.first_air_date,
           show.status,
           show.added_at,
+          show.source ?? "manual",
         ]
       );
     },
@@ -298,11 +318,12 @@ function createWebBackend(): Backend {
       const list = status
         ? s.shows.filter((x) => x.status === status)
         : s.shows;
-      return [...list].sort((a, b) => b.added_at - a.added_at);
+      return [...list].map(normalizeShow).sort((a, b) => b.added_at - a.added_at);
     },
 
     async getShow(id) {
-      return read().shows.find((x) => x.id === id) ?? null;
+      const found = read().shows.find((x) => x.id === id);
+      return found ? normalizeShow(found) : null;
     },
 
     async upsertShow(show) {
@@ -313,8 +334,9 @@ function createWebBackend(): Backend {
         existing.poster_path = show.poster_path;
         existing.overview = show.overview;
         existing.first_air_date = show.first_air_date;
+        if (show.source) existing.source = show.source;
       } else {
-        s.shows.push(show);
+        s.shows.push({ ...show, source: show.source ?? "manual" });
       }
       write(s);
     },

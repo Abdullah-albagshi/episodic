@@ -12,10 +12,26 @@ export function posterUrl(
   return `${IMAGE_BASE}/${size}${path}`;
 }
 
+export function backdropUrl(
+  path: string | null,
+  size: "w780" | "w1280" = "w780"
+): string | null {
+  if (!path) return null;
+  return `${IMAGE_BASE}/${size}${path}`;
+}
+
 /** Build a URL for an episode still (thumbnail) image. */
 export function stillUrl(
   path: string | null,
   size: "w92" | "w185" | "w300" = "w300"
+): string | null {
+  if (!path) return null;
+  return `${IMAGE_BASE}/${size}${path}`;
+}
+
+export function profileUrl(
+  path: string | null,
+  size: "w185" | "h632" = "w185"
 ): string | null {
   if (!path) return null;
   return `${IMAGE_BASE}/${size}${path}`;
@@ -96,13 +112,41 @@ interface TmdbSeasonSummary {
   episode_count: number;
 }
 
-interface TmdbShowDetail {
+export interface TmdbGenre {
+  id: number;
+  name: string;
+}
+
+export interface TmdbCastMember {
+  id: number;
+  name: string;
+  character: string;
+  profile_path: string | null;
+}
+
+export interface TmdbReview {
+  id: string;
+  author: string;
+  content: string;
+  created_at: string;
+  author_details?: { rating: number | null };
+}
+
+export interface TmdbShowDetail {
   id: number;
   name: string;
   poster_path: string | null;
+  backdrop_path: string | null;
   overview: string | null;
   first_air_date: string | null;
+  status: string | null;
+  number_of_seasons: number | null;
+  vote_average: number;
+  vote_count: number;
+  genres: TmdbGenre[];
   seasons: TmdbSeasonSummary[];
+  credits?: { cast: TmdbCastMember[] };
+  reviews?: { results: TmdbReview[] };
 }
 
 interface TmdbSeasonDetail {
@@ -116,7 +160,9 @@ interface TmdbSeasonDetail {
 }
 
 export async function getShowDetail(id: number): Promise<TmdbShowDetail> {
-  return tmdbFetch<TmdbShowDetail>(`/tv/${id}`);
+  return tmdbFetch<TmdbShowDetail>(`/tv/${id}`, {
+    append_to_response: "credits,reviews",
+  });
 }
 
 /**

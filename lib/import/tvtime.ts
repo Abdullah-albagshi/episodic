@@ -876,6 +876,7 @@ export async function runTvTimeImport(
         first_air_date: best.first_air_date,
         status: entry.status,
         added_at: entry.followedAt ?? Date.now(),
+        source: "tvtime",
       };
       await upsertShow(show);
       await setShowStatus(best.id, entry.status);

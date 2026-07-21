@@ -21,6 +21,8 @@ export const STATUS_LABELS: Record<ShowStatus, string> = {
   dropped: "Dropped",
 };
 
+export type MediaSource = "manual" | "tvtime";
+
 export interface Show {
   id: number; // TMDB id
   title: string;
@@ -29,6 +31,8 @@ export interface Show {
   first_air_date: string | null;
   status: ShowStatus;
   added_at: number;
+  /** How the show entered the library. Defaults to manual for older rows. */
+  source: MediaSource;
 }
 
 export interface Episode {

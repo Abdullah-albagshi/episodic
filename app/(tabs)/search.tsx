@@ -59,6 +59,7 @@ export default function SearchScreen() {
       first_air_date: r.first_air_date,
       status: "watching",
       added_at: Date.now(),
+      source: "manual",
     };
     addShow.mutate(
       { show },
