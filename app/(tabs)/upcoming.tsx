@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, SectionList, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -17,7 +18,6 @@ type Row = { show: Show; episode: Episode };
 
 const DAY_MS = 86_400_000;
 
-/** Buckets in the order they should appear on screen. */
 const BUCKETS = [
   "Released last week",
   "Today",
@@ -33,23 +33,23 @@ function startOfLocalDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
-/** Midnight (local) of an episode's air date. */
 function airDayStart(airDate: string): number {
   return startOfLocalDay(new Date(airDate + "T00:00:00"));
 }
 
-/** Which time bucket an air date falls into relative to `now`. */
 function bucketFor(airDate: string, now: Date): Bucket | null {
   const day = airDayStart(airDate);
   const today = startOfLocalDay(now);
   const tomorrow = today + DAY_MS;
   const lastWeek = today - 7 * DAY_MS;
-
-  // End of the current week, treated as the upcoming Monday (exclusive).
-  const dow = now.getDay(); // 0 = Sunday
+  const dow = now.getDay();
   const daysToNextMonday = (8 - dow) % 7 || 7;
   const endOfWeek = today + daysToNextMonday * DAY_MS;
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+  const endOfMonth = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    1
+  ).getTime();
   const endOfYear = new Date(now.getFullYear() + 1, 0, 1).getTime();
 
   if (day < today) return day >= lastWeek ? "Released last week" : null;
@@ -70,6 +70,7 @@ function formatAir(date: string): string {
 }
 
 export default function UpcomingScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { data: rows, isLoading, isError, error, refetch } = useUpcoming();
 
@@ -93,20 +94,24 @@ export default function UpcomingScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-      <ScreenTitle title="Upcoming" subtitle="New episodes on the way" />
+      <ScreenTitle
+        title={t("upcoming.title")}
+        subtitle={t("upcoming.subtitle")}
+      />
       {isLoading ? (
         <Loading />
       ) : isError ? (
         <ErrorState
-          title="Couldn't load upcoming episodes"
+          title={t("upcoming.errorTitle")}
           message={errorMessage(error)}
           onRetry={() => refetch()}
+          retryLabel={t("common.tryAgain")}
         />
       ) : sections.length === 0 ? (
         <EmptyState
           icon="calendar-outline"
-          title="No upcoming episodes"
-          subtitle="When shows you track have recent or future air dates, they'll appear here."
+          title={t("upcoming.emptyTitle")}
+          subtitle={t("upcoming.emptySubtitle")}
         />
       ) : (
         <SectionList

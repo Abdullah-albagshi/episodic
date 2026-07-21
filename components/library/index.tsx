@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
-import type { LibraryFilter, LibraryView } from "../lib/store";
-import type { LibraryEntry } from "../lib/types";
-import { BottomSheet, Poster, ProgressBar } from "./ui";
+import type { LibraryFilter, LibraryView } from "../../lib/store";
+import type { LibraryEntry } from "../../lib/types";
+import { BottomSheet, Poster, ProgressBar } from "../ui";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
