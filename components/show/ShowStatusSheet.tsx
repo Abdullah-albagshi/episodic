@@ -1,11 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { BottomSheet } from "../ui";
-import {
-  SHOW_STATUSES,
-  STATUS_LABELS,
-  type ShowStatus,
-} from "../../lib/types";
+import { SHOW_STATUSES, type ShowStatus } from "../../lib/types";
 
 const STATUS_ICONS: Record<ShowStatus, keyof typeof Ionicons.glyphMap> = {
   watching: "play",
@@ -28,8 +25,10 @@ export function ShowStatusSheet({
   onSelect: (status: ShowStatus) => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Status">
+    <BottomSheet visible={visible} onClose={onClose} title={t("show.status")}>
       <View className="gap-1">
         {SHOW_STATUSES.map((s) => {
           const active = s === current;
@@ -52,7 +51,7 @@ export function ShowStatusSheet({
                   active ? "text-primary font-semibold" : "text-text"
                 }`}
               >
-                {STATUS_LABELS[s]}
+                {t(`status.${s}`)}
               </Text>
               {active ? (
                 <Ionicons name="checkmark" size={20} color="#7c5cff" />
@@ -72,7 +71,7 @@ export function ShowStatusSheet({
         >
           <Ionicons name="trash-outline" size={20} color="#ff5c8a" />
           <Text className="flex-1 ml-3 text-base text-accent font-medium">
-            Remove from library
+            {t("show.remove")}
           </Text>
         </Pressable>
       </View>

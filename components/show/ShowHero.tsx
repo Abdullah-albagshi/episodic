@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Image, Pressable, Text, View } from "react-native";
 import { ProgressBar, Poster } from "../ui";
-import { backdropUrl } from "../../lib/tmdb";
-import { STATUS_LABELS, type Show } from "../../lib/types";
-import type { TmdbShowDetail } from "../../lib/tmdb";
+import { backdropUrl, type TmdbShowDetail } from "../../lib/tmdb";
+import type { Show } from "../../lib/types";
 
 export function ShowHero({
   show,
@@ -20,6 +20,7 @@ export function ShowHero({
   total: number;
   onOpenStatus: () => void;
 }) {
+  const { t } = useTranslation();
   const backdrop = backdropUrl(detail?.backdrop_path ?? null);
   const year = show?.first_air_date?.slice(0, 4);
   const seasons = detail?.number_of_seasons;
@@ -72,7 +73,7 @@ export function ShowHero({
             {inLibrary && show?.source === "tvtime" ? (
               <View className="self-start mt-2 rounded-full bg-primary/20 px-2.5 py-0.5">
                 <Text className="text-primary text-[11px] font-semibold">
-                  From TV Time
+                  {t("show.fromTvTime")}
                 </Text>
               </View>
             ) : null}
@@ -82,7 +83,10 @@ export function ShowHero({
         {inLibrary && total > 0 ? (
           <View className="mt-3">
             <Text className="text-muted text-xs mb-1">
-              {totalWatched}/{total} episodes watched
+              {t("show.episodesWatched", {
+                watched: totalWatched,
+                total,
+              })}
             </Text>
             <ProgressBar value={totalWatched} total={total} />
           </View>
@@ -95,7 +99,7 @@ export function ShowHero({
           >
             <Ionicons name="play" size={16} color="#f2f2f7" />
             <Text className="text-text font-semibold mx-2">
-              {STATUS_LABELS[show.status]}
+              {t(`status.${show.status}`)}
             </Text>
             <Ionicons name="chevron-down" size={16} color="#9a9ab0" />
           </Pressable>

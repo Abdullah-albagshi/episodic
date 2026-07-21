@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Image,
@@ -59,12 +60,13 @@ const STATUS_STYLES: Record<ShowStatus, string> = {
 };
 
 export function StatusPill({ status }: { status: ShowStatus }) {
+  const { t } = useTranslation();
   return (
     <View className={`rounded-full px-2 py-0.5 ${STATUS_STYLES[status].split(" ")[0]}`}>
       <Text
         className={`text-[11px] font-semibold ${STATUS_STYLES[status].split(" ")[1]}`}
       >
-        {STATUS_LABELS[status]}
+        {t(`status.${status}`)}
       </Text>
     </View>
   );

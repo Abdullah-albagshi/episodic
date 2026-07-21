@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { FlatList, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -22,16 +23,9 @@ import { useAppStore, type LibraryFilter } from "../../lib/store";
 import { SHOW_STATUSES, type LibraryEntry } from "../../lib/types";
 
 const FILTERS: LibraryFilter[] = ["all", ...SHOW_STATUSES];
-const FILTER_LABELS: Record<LibraryFilter, string> = {
-  all: "All",
-  watching: "Watching",
-  plan: "Plan",
-  paused: "Paused",
-  completed: "Completed",
-  dropped: "Dropped",
-};
 
 export default function LibraryScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const {
     data: entries,
@@ -46,6 +40,18 @@ export default function LibraryScreen() {
   const view = useAppStore((s) => s.libraryView);
   const setView = useAppStore((s) => s.setLibraryView);
   const [filterOpen, setFilterOpen] = useState(false);
+
+  const FILTER_LABELS: Record<LibraryFilter, string> = useMemo(
+    () => ({
+      all: t("library.filterAll"),
+      watching: t("status.watching"),
+      plan: t("library.filterPlan"),
+      paused: t("status.paused"),
+      completed: t("status.completed"),
+      dropped: t("status.dropped"),
+    }),
+    [t]
+  );
 
   const filtered = useMemo(() => {
     if (!entries) return [];
@@ -112,7 +118,7 @@ export default function LibraryScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-      <ScreenTitle title="Library" subtitle="Every show you track" />
+      <ScreenTitle title={t("library.title")} subtitle={t("library.subtitle")} />
 
       <View className="flex-row items-center justify-between px-4 mb-3">
         <Pressable
@@ -141,9 +147,10 @@ export default function LibraryScreen() {
 
       {isError && !entries ? (
         <ErrorState
-          title="Couldn't load your library"
+          title={t("library.errorTitle")}
           message={errorMessage(error)}
           onRetry={() => refetch()}
+          retryLabel={t("common.tryAgain")}
         />
       ) : isLoading || !entries ? (
         <Loading />
@@ -151,12 +158,14 @@ export default function LibraryScreen() {
         <EmptyState
           icon="albums-outline"
           title={
-            entries.length === 0 ? "Your library is empty" : "Nothing here yet"
+            entries.length === 0
+              ? t("library.emptyTitle")
+              : t("library.emptyFilterTitle")
           }
           subtitle={
             entries.length === 0
-              ? "Use Search to add shows, or import your history from TV Time in Settings."
-              : "No shows with this status."
+              ? t("library.emptySubtitle")
+              : t("library.emptyFilterSubtitle")
           }
         />
       ) : (

@@ -133,7 +133,7 @@ export default function ImportScreen() {
             <Button
               label="Go to Settings"
               icon="settings-outline"
-              onPress={() => router.replace("/(tabs)/settings")}
+              onPress={() => router.replace("/(tabs)/profile")}
             />
           }
         />

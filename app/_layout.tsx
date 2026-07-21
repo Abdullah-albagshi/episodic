@@ -6,10 +6,13 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
+import { I18nextProvider } from "react-i18next";
 import { ErrorState, errorMessage, Loading } from "../components/ui";
 import { initDb } from "../lib/db";
+import i18n, { initI18n } from "../lib/i18n";
 import { queryClient } from "../lib/queries";
-import { useAppStore } from "../lib/store";
+import { LOCALE_SETTING, useAppStore } from "../lib/store";
+import { getSetting } from "../lib/db";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -21,6 +24,8 @@ export default function RootLayout() {
     setReady(false);
     try {
       await initDb();
+      const savedLocale = await getSetting(LOCALE_SETTING);
+      await initI18n(savedLocale);
       await hydrate();
     } catch (e) {
       console.warn("Startup failed", e);
@@ -61,23 +66,25 @@ export default function RootLayout() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: "#0b0b12" },
-          headerTintColor: "#f2f2f7",
-          headerShadowVisible: false,
-          contentStyle: { backgroundColor: "#0b0b12" },
-        }}
-      >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="show/[id]" options={{ title: "" }} />
-        <Stack.Screen
-          name="import"
-          options={{ title: "Import from TV Time", presentation: "modal" }}
-        />
-      </Stack>
-    </QueryClientProvider>
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={queryClient}>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: "#0b0b12" },
+            headerTintColor: "#f2f2f7",
+            headerShadowVisible: false,
+            contentStyle: { backgroundColor: "#0b0b12" },
+          }}
+        >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="show/[id]" options={{ title: "" }} />
+          <Stack.Screen
+            name="import"
+            options={{ title: "Import from TV Time", presentation: "modal" }}
+          />
+        </Stack>
+      </QueryClientProvider>
+    </I18nextProvider>
   );
 }

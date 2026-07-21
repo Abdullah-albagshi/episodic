@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { SectionList, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -16,6 +17,7 @@ import type { ContinueItem } from "../../lib/types";
 const STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000; // ~1 month
 
 export default function HomeScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const {
     data: items,
@@ -35,18 +37,17 @@ export default function HomeScreen() {
       const isStale = item.watchedCount === 0 || item.lastActivityAt < cutoff;
       (isStale ? stale : current).push(item);
     }
-    // Latest activity first.
     current.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     stale.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     const result: { title: string; data: ContinueItem[] }[] = [];
     if (current.length > 0) {
-      result.push({ title: "Currently watching", data: current });
+      result.push({ title: t("home.currentlyWatching"), data: current });
     }
     if (stale.length > 0) {
-      result.push({ title: "Haven't watched in a while", data: stale });
+      result.push({ title: t("home.stale"), data: stale });
     }
     return result;
-  }, [items]);
+  }, [items, t]);
 
   function markWatched(item: ContinueItem) {
     toggleEpisode.mutate({
@@ -59,20 +60,21 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-      <ScreenTitle title="Up next" subtitle="Continue watching your shows" />
+      <ScreenTitle title={t("home.title")} subtitle={t("home.subtitle")} />
       {isLoading ? (
         <Loading />
       ) : isError ? (
         <ErrorState
-          title="Couldn't load your queue"
+          title={t("home.errorTitle")}
           message={errorMessage(error)}
           onRetry={() => refetch()}
+          retryLabel={t("common.tryAgain")}
         />
       ) : sections.length === 0 ? (
         <EmptyState
           icon="play-circle-outline"
-          title="Nothing queued up"
-          subtitle="Add shows to your library and mark them as Watching to see the next episode here."
+          title={t("home.emptyTitle")}
+          subtitle={t("home.emptySubtitle")}
         />
       ) : (
         <SectionList

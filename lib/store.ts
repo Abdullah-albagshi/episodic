@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import { getSetting, setSetting } from "./db";
+import { setAppLocale, type AppLocale } from "./i18n";
 import type { ShowStatus } from "./types";
 
 export const TMDB_KEY_SETTING = "tmdb_api_key";
 export const LIBRARY_VIEW_SETTING = "library_view";
 export const SKIP_EPISODE_PROMPT_SETTING = "skip_episode_prompt";
+export const LOCALE_SETTING = "locale";
 
 export type LibraryFilter = "all" | ShowStatus;
 
@@ -27,12 +29,15 @@ interface AppState {
   libraryView: LibraryView;
   /** Whether to prompt when the user skips earlier episodes. */
   skipEpisodePrompt: SkipEpisodePrompt;
+  /** UI language. */
+  locale: AppLocale;
 
   hydrate: () => Promise<void>;
   setApiKey: (key: string) => Promise<void>;
   setLibraryFilter: (filter: LibraryFilter) => void;
   setLibraryView: (view: LibraryView) => void;
   setSkipEpisodePrompt: (value: SkipEpisodePrompt) => Promise<void>;
+  setLocale: (locale: AppLocale) => Promise<void>;
 }
 
 /**
@@ -46,12 +51,14 @@ export const useAppStore = create<AppState>((set) => ({
   libraryFilter: "all",
   libraryView: "grid",
   skipEpisodePrompt: "ask",
+  locale: "en",
 
   hydrate: async () => {
-    const [key, view, skipPrompt] = await Promise.all([
+    const [key, view, skipPrompt, locale] = await Promise.all([
       getSetting(TMDB_KEY_SETTING),
       getSetting(LIBRARY_VIEW_SETTING),
       getSetting(SKIP_EPISODE_PROMPT_SETTING),
+      getSetting(LOCALE_SETTING),
     ]);
     set({
       apiKey: key,
@@ -59,6 +66,7 @@ export const useAppStore = create<AppState>((set) => ({
         ? (view as LibraryView)
         : "grid",
       skipEpisodePrompt: skipPrompt === "never" ? "never" : "ask",
+      locale: locale === "ar" || locale === "en" ? locale : "en",
       hydrated: true,
     });
   },
@@ -73,13 +81,18 @@ export const useAppStore = create<AppState>((set) => ({
 
   setLibraryView: (view) => {
     set({ libraryView: view });
-    // Persist the preference; fire-and-forget so the toggle stays snappy.
     void setSetting(LIBRARY_VIEW_SETTING, view);
   },
 
   setSkipEpisodePrompt: async (value) => {
     await setSetting(SKIP_EPISODE_PROMPT_SETTING, value);
     set({ skipEpisodePrompt: value });
+  },
+
+  setLocale: async (locale) => {
+    await setSetting(LOCALE_SETTING, locale);
+    await setAppLocale(locale);
+    set({ locale });
   },
 }));
 
