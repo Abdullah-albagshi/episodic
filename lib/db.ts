@@ -5,6 +5,7 @@ import type {
   ExportBundle,
   LibraryEntry,
   MediaSource,
+  MediaType,
   ProfileStats,
   Show,
   ShowStatus,
@@ -23,7 +24,9 @@ function normalizeShow(row: Show | Record<string, unknown>): Show {
   const s = row as Show;
   return {
     ...s,
+    media_type: s.media_type === "movie" ? "movie" : "tv",
     source: (s.source === "tvtime" ? "tvtime" : "manual") as MediaSource,
+    watched_at: s.watched_at ?? null,
   };
 }
 
@@ -42,11 +45,20 @@ interface Backend {
   init(): Promise<void>;
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
-  getShows(status?: ShowStatus): Promise<Show[]>;
-  getShow(id: number): Promise<Show | null>;
+  getShows(status?: ShowStatus, mediaType?: MediaType): Promise<Show[]>;
+  getShow(id: number, mediaType?: MediaType): Promise<Show | null>;
   upsertShow(show: Show): Promise<void>;
-  setShowStatus(id: number, status: ShowStatus): Promise<void>;
-  removeShow(id: number): Promise<void>;
+  setShowStatus(
+    id: number,
+    status: ShowStatus,
+    mediaType?: MediaType
+  ): Promise<void>;
+  setMovieWatched(
+    id: number,
+    watched: boolean,
+    mediaType?: MediaType
+  ): Promise<void>;
+  removeShow(id: number, mediaType?: MediaType): Promise<void>;
   getEpisodes(showId: number): Promise<Episode[]>;
   upsertEpisodes(episodes: Episode[]): Promise<void>;
   setEpisodeWatched(
@@ -86,14 +98,17 @@ function createSqliteBackend(): Backend {
       await d.execAsync(`
         PRAGMA journal_mode = WAL;
         CREATE TABLE IF NOT EXISTS shows (
-          id INTEGER PRIMARY KEY,
+          media_type TEXT NOT NULL DEFAULT 'tv',
+          id INTEGER NOT NULL,
           title TEXT NOT NULL,
           poster_path TEXT,
           overview TEXT,
           first_air_date TEXT,
           status TEXT NOT NULL DEFAULT 'watching',
           added_at INTEGER NOT NULL,
-          source TEXT NOT NULL DEFAULT 'manual'
+          source TEXT NOT NULL DEFAULT 'manual',
+          watched_at INTEGER,
+          PRIMARY KEY (media_type, id)
         );
         CREATE TABLE IF NOT EXISTS episodes (
           show_id INTEGER NOT NULL,
@@ -110,20 +125,49 @@ function createSqliteBackend(): Backend {
           value TEXT
         );
       `);
-      // Add columns introduced after the initial schema for existing databases.
+      // Migrate legacy shows table (id-only PK) to composite (media_type, id).
+      const showCols: { name: string }[] = await d.getAllAsync(
+        "PRAGMA table_info(shows)"
+      );
+      const colNames = new Set(showCols.map((c) => c.name));
+      if (!colNames.has("media_type")) {
+        await d.execAsync(`
+          CREATE TABLE IF NOT EXISTS shows_v2 (
+            media_type TEXT NOT NULL DEFAULT 'tv',
+            id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            poster_path TEXT,
+            overview TEXT,
+            first_air_date TEXT,
+            status TEXT NOT NULL DEFAULT 'watching',
+            added_at INTEGER NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            watched_at INTEGER,
+            PRIMARY KEY (media_type, id)
+          );
+          INSERT OR IGNORE INTO shows_v2
+            (media_type, id, title, poster_path, overview, first_air_date, status, added_at, source, watched_at)
+          SELECT 'tv', id, title, poster_path, overview, first_air_date, status, added_at,
+            COALESCE(source, 'manual'), NULL
+          FROM shows;
+          DROP TABLE shows;
+          ALTER TABLE shows_v2 RENAME TO shows;
+        `);
+      } else {
+        if (!colNames.has("source")) {
+          await d.execAsync(
+            "ALTER TABLE shows ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"
+          );
+        }
+        if (!colNames.has("watched_at")) {
+          await d.execAsync("ALTER TABLE shows ADD COLUMN watched_at INTEGER");
+        }
+      }
       const epCols: { name: string }[] = await d.getAllAsync(
         "PRAGMA table_info(episodes)"
       );
       if (!epCols.some((c) => c.name === "still_path")) {
         await d.execAsync("ALTER TABLE episodes ADD COLUMN still_path TEXT");
-      }
-      const showCols: { name: string }[] = await d.getAllAsync(
-        "PRAGMA table_info(shows)"
-      );
-      if (!showCols.some((c) => c.name === "source")) {
-        await d.execAsync(
-          "ALTER TABLE shows ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"
-        );
       }
     },
 
@@ -144,37 +188,49 @@ function createSqliteBackend(): Backend {
       );
     },
 
-    async getShows(status) {
+    async getShows(status, mediaType) {
       const d = await db();
-      const rows = status
-        ? await d.getAllAsync(
-            "SELECT * FROM shows WHERE status = ? ORDER BY added_at DESC",
-            [status]
-          )
-        : await d.getAllAsync("SELECT * FROM shows ORDER BY added_at DESC");
+      let sql = "SELECT * FROM shows";
+      const params: (string | number)[] = [];
+      const where: string[] = [];
+      if (status) {
+        where.push("status = ?");
+        params.push(status);
+      }
+      if (mediaType) {
+        where.push("media_type = ?");
+        params.push(mediaType);
+      }
+      if (where.length) sql += ` WHERE ${where.join(" AND ")}`;
+      sql += " ORDER BY added_at DESC";
+      const rows = await d.getAllAsync(sql, params);
       return (rows as Show[]).map(normalizeShow);
     },
 
-    async getShow(id) {
+    async getShow(id, mediaType = "tv") {
       const d = await db();
-      const row = await d.getFirstAsync("SELECT * FROM shows WHERE id = ?", [
-        id,
-      ]);
+      const row = await d.getFirstAsync(
+        "SELECT * FROM shows WHERE id = ? AND media_type = ?",
+        [id, mediaType]
+      );
       return row ? normalizeShow(row as Show) : null;
     },
 
     async upsertShow(show) {
       const d = await db();
+      const mediaType = show.media_type ?? "tv";
       await d.runAsync(
-        `INSERT INTO shows (id, title, poster_path, overview, first_air_date, status, added_at, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
+        `INSERT INTO shows (media_type, id, title, poster_path, overview, first_air_date, status, added_at, source, watched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(media_type, id) DO UPDATE SET
            title = excluded.title,
            poster_path = excluded.poster_path,
            overview = excluded.overview,
            first_air_date = excluded.first_air_date,
-           source = COALESCE(excluded.source, shows.source)`,
+           source = COALESCE(excluded.source, shows.source),
+           watched_at = COALESCE(excluded.watched_at, shows.watched_at)`,
         [
+          mediaType,
           show.id,
           show.title,
           show.poster_path,
@@ -183,22 +239,36 @@ function createSqliteBackend(): Backend {
           show.status,
           show.added_at,
           show.source ?? "manual",
+          show.watched_at ?? null,
         ]
       );
     },
 
-    async setShowStatus(id, status) {
+    async setShowStatus(id, status, mediaType = "tv") {
       const d = await db();
-      await d.runAsync("UPDATE shows SET status = ? WHERE id = ?", [
-        status,
-        id,
-      ]);
+      await d.runAsync(
+        "UPDATE shows SET status = ? WHERE id = ? AND media_type = ?",
+        [status, id, mediaType]
+      );
     },
 
-    async removeShow(id) {
+    async setMovieWatched(id, watched, mediaType = "movie") {
       const d = await db();
-      await d.runAsync("DELETE FROM episodes WHERE show_id = ?", [id]);
-      await d.runAsync("DELETE FROM shows WHERE id = ?", [id]);
+      await d.runAsync(
+        "UPDATE shows SET watched_at = ?, status = ? WHERE id = ? AND media_type = ?",
+        [watched ? Date.now() : null, watched ? "completed" : "watching", id, mediaType]
+      );
+    },
+
+    async removeShow(id, mediaType = "tv") {
+      const d = await db();
+      if (mediaType === "tv") {
+        await d.runAsync("DELETE FROM episodes WHERE show_id = ?", [id]);
+      }
+      await d.runAsync(
+        "DELETE FROM shows WHERE id = ? AND media_type = ?",
+        [id, mediaType]
+      );
     },
 
     async getEpisodes(showId) {
@@ -313,45 +383,75 @@ function createWebBackend(): Backend {
       write(s);
     },
 
-    async getShows(status) {
+    async getShows(status, mediaType) {
       const s = read();
-      const list = status
-        ? s.shows.filter((x) => x.status === status)
-        : s.shows;
+      let list = s.shows;
+      if (status) list = list.filter((x) => x.status === status);
+      if (mediaType) list = list.filter((x) => (x.media_type ?? "tv") === mediaType);
       return [...list].map(normalizeShow).sort((a, b) => b.added_at - a.added_at);
     },
 
-    async getShow(id) {
-      const found = read().shows.find((x) => x.id === id);
+    async getShow(id, mediaType = "tv") {
+      const found = read().shows.find(
+        (x) => x.id === id && (x.media_type ?? "tv") === mediaType
+      );
       return found ? normalizeShow(found) : null;
     },
 
     async upsertShow(show) {
       const s = read();
-      const existing = s.shows.find((x) => x.id === show.id);
+      const mediaType = show.media_type ?? "tv";
+      const existing = s.shows.find(
+        (x) => x.id === show.id && (x.media_type ?? "tv") === mediaType
+      );
       if (existing) {
         existing.title = show.title;
         existing.poster_path = show.poster_path;
         existing.overview = show.overview;
         existing.first_air_date = show.first_air_date;
+        existing.media_type = mediaType;
         if (show.source) existing.source = show.source;
+        if (show.watched_at !== undefined) existing.watched_at = show.watched_at;
       } else {
-        s.shows.push({ ...show, source: show.source ?? "manual" });
+        s.shows.push({
+          ...show,
+          media_type: mediaType,
+          source: show.source ?? "manual",
+          watched_at: show.watched_at ?? null,
+        });
       }
       write(s);
     },
 
-    async setShowStatus(id, status) {
+    async setShowStatus(id, status, mediaType = "tv") {
       const s = read();
-      const show = s.shows.find((x) => x.id === id);
+      const show = s.shows.find(
+        (x) => x.id === id && (x.media_type ?? "tv") === mediaType
+      );
       if (show) show.status = status;
       write(s);
     },
 
-    async removeShow(id) {
+    async setMovieWatched(id, watched, mediaType = "movie") {
       const s = read();
-      s.shows = s.shows.filter((x) => x.id !== id);
-      s.episodes = s.episodes.filter((e) => e.show_id !== id);
+      const show = s.shows.find(
+        (x) => x.id === id && (x.media_type ?? "tv") === mediaType
+      );
+      if (show) {
+        show.watched_at = watched ? Date.now() : null;
+        show.status = watched ? "completed" : "watching";
+      }
+      write(s);
+    },
+
+    async removeShow(id, mediaType = "tv") {
+      const s = read();
+      s.shows = s.shows.filter(
+        (x) => !(x.id === id && (x.media_type ?? "tv") === mediaType)
+      );
+      if (mediaType === "tv") {
+        s.episodes = s.episodes.filter((e) => e.show_id !== id);
+      }
       write(s);
     },
 
@@ -435,12 +535,20 @@ export const getSetting = (key: string) => backend.getSetting(key);
 export const setSetting = (key: string, value: string) =>
   backend.setSetting(key, value);
 
-export const getShows = (status?: ShowStatus) => backend.getShows(status);
-export const getShow = (id: number) => backend.getShow(id);
+export const getShows = (status?: ShowStatus, mediaType?: MediaType) =>
+  backend.getShows(status, mediaType);
+export const getShow = (id: number, mediaType: MediaType = "tv") =>
+  backend.getShow(id, mediaType);
 export const upsertShow = (show: Show) => backend.upsertShow(show);
-export const setShowStatus = (id: number, status: ShowStatus) =>
-  backend.setShowStatus(id, status);
-export const removeShow = (id: number) => backend.removeShow(id);
+export const setShowStatus = (
+  id: number,
+  status: ShowStatus,
+  mediaType: MediaType = "tv"
+) => backend.setShowStatus(id, status, mediaType);
+export const setMovieWatched = (id: number, watched: boolean) =>
+  backend.setMovieWatched(id, watched, "movie");
+export const removeShow = (id: number, mediaType: MediaType = "tv") =>
+  backend.removeShow(id, mediaType);
 
 export const getEpisodes = (showId: number) => backend.getEpisodes(showId);
 export const upsertEpisodes = (episodes: Episode[]) =>
@@ -480,7 +588,7 @@ export async function syncShowCompletion(
   showId: number,
   { demote = true }: { demote?: boolean } = {}
 ): Promise<void> {
-  const show = await backend.getShow(showId);
+  const show = await backend.getShow(showId, "tv");
   if (!show || show.status === "dropped" || show.status === "paused") return;
 
   const eps = await backend.getEpisodes(showId);
@@ -507,6 +615,7 @@ export async function reconcileLibraryCompletion(): Promise<void> {
     list.push(e);
   }
   for (const show of shows) {
+    if (show.media_type === "movie") continue;
     if (
       show.status === "dropped" ||
       show.status === "paused" ||
@@ -552,7 +661,9 @@ export async function setSeasonWatched(
 
 /** Next unwatched episode per "watching" show, plus progress counts. */
 export async function getContinueWatching(): Promise<ContinueItem[]> {
-  const shows = await backend.getShows("watching");
+  const shows = (await backend.getShows("watching", "tv")).filter(
+    (s) => s.media_type === "tv"
+  );
   const items: ContinueItem[] = [];
   for (const show of shows) {
     const eps = await backend.getEpisodes(show.id);
@@ -582,6 +693,16 @@ export async function getLibraryOverview(): Promise<LibraryEntry[]> {
   const shows = await backend.getShows();
   const out: LibraryEntry[] = [];
   for (const show of shows) {
+    if (show.media_type === "movie") {
+      const watched = show.watched_at != null || show.status === "completed";
+      out.push({
+        show,
+        next: null,
+        watchedCount: watched ? 1 : 0,
+        totalCount: 1,
+      });
+      continue;
+    }
     const eps = await backend.getEpisodes(show.id);
     const main = eps.filter((e) => isMainSeason(e.season));
     const aired = main.filter((e) => isReleased(e.air_date));
@@ -601,7 +722,9 @@ export async function getLibraryOverview(): Promise<LibraryEntry[]> {
 export async function getUpcoming(): Promise<
   { show: Show; episode: Episode }[]
 > {
-  const shows = (await backend.getShows()).filter((s) => s.status !== "dropped");
+  const shows = (await backend.getShows()).filter(
+    (s) => s.status !== "dropped" && s.media_type !== "movie"
+  );
   const now = new Date();
   const startOfToday = new Date(
     now.getFullYear(),
@@ -713,7 +836,7 @@ export async function exportAll(): Promise<ExportBundle> {
   const episodes = await backend.allEpisodes();
   return {
     app: "episodic",
-    version: 1,
+    version: 2,
     exported_at: Date.now(),
     shows,
     episodes,

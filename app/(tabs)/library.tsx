@@ -53,12 +53,21 @@ export default function LibraryScreen() {
     [t]
   );
 
+  const [mediaFilter, setMediaFilter] = useState<"all" | "tv" | "movie">("all");
+
   const filtered = useMemo(() => {
     if (!entries) return [];
-    return filter === "all"
-      ? entries
-      : entries.filter((e) => e.show.status === filter);
-  }, [entries, filter]);
+    let list =
+      filter === "all"
+        ? entries
+        : entries.filter((e) => e.show.status === filter);
+    if (mediaFilter !== "all") {
+      list = list.filter(
+        (e) => (e.show.media_type ?? "tv") === mediaFilter
+      );
+    }
+    return list;
+  }, [entries, filter, mediaFilter]);
 
   const counts = useMemo(() => {
     const c: Record<LibraryFilter, number> = {
@@ -74,7 +83,11 @@ export default function LibraryScreen() {
   }, [entries]);
 
   function openShow(entry: LibraryEntry) {
-    router.push(`/show/${entry.show.id}`);
+    if (entry.show.media_type === "movie") {
+      router.push(`/movie/${entry.show.id}`);
+    } else {
+      router.push(`/show/${entry.show.id}`);
+    }
   }
 
   function markWatched(entry: LibraryEntry) {
@@ -132,7 +145,31 @@ export default function LibraryScreen() {
           </Text>
           <Ionicons name="chevron-down" size={14} color="#9a9ab0" />
         </Pressable>
-        <LibraryOptionsMenu value={view} onChange={setView} />
+        <View className="flex-row items-center gap-2">
+          <View className="flex-row bg-surface rounded-full p-0.5">
+            {(["all", "tv", "movie"] as const).map((m) => {
+              const active = mediaFilter === m;
+              return (
+                <Pressable
+                  key={m}
+                  onPress={() => setMediaFilter(m)}
+                  className={`px-2.5 h-8 rounded-full items-center justify-center ${
+                    active ? "bg-primary" : ""
+                  }`}
+                >
+                  <Text
+                    className={`text-xs font-semibold ${
+                      active ? "text-white" : "text-muted"
+                    }`}
+                  >
+                    {m === "all" ? "All" : m === "tv" ? "TV" : "Movies"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <LibraryOptionsMenu value={view} onChange={setView} />
+        </View>
       </View>
 
       <LibraryFilterDrawer

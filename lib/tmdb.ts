@@ -82,6 +82,7 @@ export interface TmdbSearchResult {
   overview: string | null;
   first_air_date: string | null;
   vote_average?: number;
+  media_type?: "tv" | "movie";
 }
 
 export async function searchShows(query: string): Promise<TmdbSearchResult[]> {
@@ -90,7 +91,33 @@ export async function searchShows(query: string): Promise<TmdbSearchResult[]> {
     query: query.trim(),
     include_adult: "false",
   });
-  return data.results ?? [];
+  return (data.results ?? []).map((r) => ({ ...r, media_type: "tv" as const }));
+}
+
+export async function searchMovies(query: string): Promise<TmdbSearchResult[]> {
+  if (!query.trim()) return [];
+  const data = await tmdbFetch<{
+    results: {
+      id: number;
+      title: string;
+      poster_path: string | null;
+      overview: string | null;
+      release_date: string | null;
+      vote_average?: number;
+    }[];
+  }>("/search/movie", {
+    query: query.trim(),
+    include_adult: "false",
+  });
+  return (data.results ?? []).map((r) => ({
+    id: r.id,
+    name: r.title,
+    poster_path: r.poster_path,
+    overview: r.overview,
+    first_air_date: r.release_date,
+    vote_average: r.vote_average,
+    media_type: "movie" as const,
+  }));
 }
 
 /**
@@ -163,6 +190,24 @@ export async function getShowDetail(id: number): Promise<TmdbShowDetail> {
   return tmdbFetch<TmdbShowDetail>(`/tv/${id}`, {
     append_to_response: "credits,reviews",
   });
+}
+
+export interface TmdbMovieDetail {
+  id: number;
+  title: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  overview: string | null;
+  release_date: string | null;
+  status: string | null;
+  runtime: number | null;
+  vote_average: number;
+  vote_count: number;
+  genres: TmdbGenre[];
+}
+
+export async function getMovieDetail(id: number): Promise<TmdbMovieDetail> {
+  return tmdbFetch<TmdbMovieDetail>(`/movie/${id}`);
 }
 
 /**

@@ -140,6 +140,8 @@ export default function ShowDetailScreen() {
         status: "watching",
         added_at: 0,
         source: "manual",
+        media_type: "tv",
+        watched_at: null,
       };
     }
     return null;
@@ -275,10 +277,13 @@ export default function ShowDetailScreen() {
 
   function confirmRemove() {
     const doRemove = () =>
-      removeShow.mutate(showId, {
-        onSuccess: () => router.back(),
-        onError: (e) => Alert.alert("Couldn't remove show", errorMessage(e)),
-      });
+      removeShow.mutate(
+        { id: showId, mediaType: "tv" },
+        {
+          onSuccess: () => router.back(),
+          onError: (e) => Alert.alert("Couldn't remove show", errorMessage(e)),
+        }
+      );
     if (typeof window !== "undefined" && window.confirm) {
       if (window.confirm("Remove this show and its watch history?")) doRemove();
     } else {

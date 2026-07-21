@@ -22,17 +22,22 @@ export const STATUS_LABELS: Record<ShowStatus, string> = {
 };
 
 export type MediaSource = "manual" | "tvtime";
+export type MediaType = "tv" | "movie";
 
 export interface Show {
   id: number; // TMDB id
+  media_type: MediaType;
   title: string;
   poster_path: string | null;
   overview: string | null;
+  /** First air date (TV) or release date (movie). */
   first_air_date: string | null;
   status: ShowStatus;
   added_at: number;
-  /** How the show entered the library. Defaults to manual for older rows. */
+  /** How the item entered the library. Defaults to manual for older rows. */
   source: MediaSource;
+  /** Movie-only: when the user marked the film watched. */
+  watched_at: number | null;
 }
 
 export interface Episode {
@@ -65,7 +70,7 @@ export interface ContinueItem {
 
 export interface ExportBundle {
   app: "episodic";
-  version: 1;
+  version: 1 | 2;
   exported_at: number;
   shows: Show[];
   episodes: Episode[];

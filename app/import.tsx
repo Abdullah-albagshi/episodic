@@ -199,7 +199,7 @@ export default function ImportScreen() {
         </View>
 
         {summary.matched.length > 0 ? (
-          <Section title={`Matched (${summary.matched.length})`}>
+          <Section title={`Matched shows (${summary.matched.length})`}>
             {summary.matched.map((m) => {
               const partial = m.watched < m.expected;
               return (
@@ -224,12 +224,40 @@ export default function ImportScreen() {
           </Section>
         ) : null}
 
+        {summary.moviesMatched?.length > 0 ? (
+          <Section title={`Matched movies (${summary.moviesMatched.length})`}>
+            {summary.moviesMatched.map((m) => (
+              <View key={m.name} className="flex-row justify-between py-1.5">
+                <Text className="text-text flex-1" numberOfLines={1}>
+                  {m.name}
+                  {m.matchedTitle !== m.name ? (
+                    <Text className="text-muted"> → {m.matchedTitle}</Text>
+                  ) : null}
+                </Text>
+                <Text className="text-success ml-2">
+                  {m.watched ? "watched" : "added"}
+                </Text>
+              </View>
+            ))}
+          </Section>
+        ) : null}
+
         {summary.unmatched.length > 0 ? (
-          <Section title={`Not found (${summary.unmatched.length})`}>
+          <Section title={`Shows not found (${summary.unmatched.length})`}>
             <Text className="text-muted text-xs mb-2">
               These weren't found on TMDB. Add them manually via Search.
             </Text>
             {summary.unmatched.map((n) => (
+              <Text key={n} className="text-warning py-1" numberOfLines={1}>
+                {n}
+              </Text>
+            ))}
+          </Section>
+        ) : null}
+
+        {summary.moviesUnmatched?.length > 0 ? (
+          <Section title={`Movies not found (${summary.moviesUnmatched.length})`}>
+            {summary.moviesUnmatched.map((n) => (
               <Text key={n} className="text-warning py-1" numberOfLines={1}>
                 {n}
               </Text>

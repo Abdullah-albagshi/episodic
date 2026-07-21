@@ -22,17 +22,21 @@ import {
 import { useAddShow, useShows, useTmdbSearch } from "../../lib/queries";
 import { useAppStore } from "../../lib/store";
 import type { TmdbSearchResult } from "../../lib/tmdb";
-import type { Show } from "../../lib/types";
+import type { MediaType, Show } from "../../lib/types";
 
 export default function SearchScreen() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
+  const [mediaType, setMediaType] = useState<MediaType>("tv");
 
   const hasKey = !!useAppStore((s) => s.apiKey);
   const { data: shows } = useShows();
   const inLibrary = useMemo(
-    () => new Set((shows ?? []).map((s) => s.id)),
+    () =>
+      new Set(
+        (shows ?? []).map((s) => `${s.media_type ?? "tv"}:${s.id}`)
+      ),
     [shows]
   );
 
@@ -42,7 +46,7 @@ export default function SearchScreen() {
     isError,
     error,
     refetch,
-  } = useTmdbSearch(debounced, hasKey);
+  } = useTmdbSearch(debounced, hasKey, mediaType);
   const addShow = useAddShow();
 
   useEffect(() => {
@@ -60,27 +64,58 @@ export default function SearchScreen() {
       status: "watching",
       added_at: Date.now(),
       source: "manual",
+      media_type: mediaType,
+      watched_at: null,
     };
     addShow.mutate(
       { show },
       {
-        onError: (e) =>
-          Alert.alert("Couldn't add show", errorMessage(e)),
+        onError: (e) => Alert.alert("Couldn't add", errorMessage(e)),
       }
     );
   }
 
+  function openItem(r: TmdbSearchResult) {
+    if (mediaType === "movie") router.push(`/movie/${r.id}`);
+    else router.push(`/show/${r.id}`);
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-      <ScreenTitle title="Search" subtitle="Find shows to track" />
+      <ScreenTitle title="Search" subtitle="Find shows and movies" />
 
-      <View className="px-4 mb-3">
+      <View className="px-4 mb-3 gap-3">
+        <View className="flex-row bg-surface rounded-xl p-1">
+          {(["tv", "movie"] as const).map((m) => {
+            const active = mediaType === m;
+            return (
+              <Pressable
+                key={m}
+                onPress={() => setMediaType(m)}
+                className={`flex-1 h-9 rounded-lg items-center justify-center ${
+                  active ? "bg-primary" : ""
+                }`}
+              >
+                <Text
+                  className={`font-semibold ${
+                    active ? "text-white" : "text-muted"
+                  }`}
+                >
+                  {m === "tv" ? "Shows" : "Movies"}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         <View className="flex-row items-center bg-surface rounded-xl px-3">
           <Ionicons name="search" size={18} color="#9a9ab0" />
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search TV shows…"
+            placeholder={
+              mediaType === "movie" ? "Search movies…" : "Search TV shows…"
+            }
             placeholderTextColor="#9a9ab0"
             className="flex-1 text-text px-2 py-3"
             autoCorrect={false}
@@ -94,7 +129,7 @@ export default function SearchScreen() {
         <EmptyState
           icon="key-outline"
           title="Add a TMDB API key"
-          subtitle="Search uses The Movie Database. Add a free API key in Settings to start finding shows."
+          subtitle="Search uses The Movie Database. Add a free API key in You to start finding titles."
         />
       ) : isError ? (
         <ErrorState
@@ -113,18 +148,21 @@ export default function SearchScreen() {
       ) : (
         <FlatList
           data={results ?? []}
-          keyExtractor={(r) => String(r.id)}
+          keyExtractor={(r) => `${mediaType}:${r.id}`}
           contentContainerStyle={{ padding: 16, gap: 12 }}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => {
-            const added = inLibrary.has(item.id);
+            const key = `${mediaType}:${item.id}`;
+            const added = inLibrary.has(key);
             const isAdding =
-              addShow.isPending && addShow.variables?.show.id === item.id;
+              addShow.isPending &&
+              addShow.variables?.show.id === item.id &&
+              addShow.variables?.show.media_type === mediaType;
             const year = item.first_air_date?.slice(0, 4);
             return (
               <View className="flex-row bg-surface rounded-2xl overflow-hidden">
                 <Pressable
-                  onPress={() => router.push(`/show/${item.id}`)}
+                  onPress={() => openItem(item)}
                   className="flex-row flex-1 active:opacity-80"
                 >
                   <Poster

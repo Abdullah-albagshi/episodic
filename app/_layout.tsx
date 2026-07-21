@@ -79,6 +79,7 @@ export default function RootLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="show/[id]" options={{ title: "" }} />
+          <Stack.Screen name="movie/[id]" options={{ title: "" }} />
           <Stack.Screen
             name="import"
             options={{ title: "Import from TV Time", presentation: "modal" }}

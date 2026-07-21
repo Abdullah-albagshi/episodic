@@ -1,5 +1,6 @@
 import {
   SETTING_TVTIME_RUNTIME_SEC,
+  setMovieWatched,
   setSetting,
   setShowStatus,
   syncShowCompletion,
@@ -9,7 +10,7 @@ import {
 import {
   findShowByTvdbId,
   getAllEpisodes,
-  posterUrl,
+  searchMovies,
   searchShows,
   type TmdbSearchResult,
 } from "../tmdb";
@@ -59,6 +60,11 @@ export interface ParsedShow {
 export interface TvTimeFiles {
   /** tracking-prod-records-v2.csv — the watch log (required). */
   tracking: string;
+  /**
+   * tracking-prod-records.csv (v1) — movie watch/follow log. Kept even when
+   * v2 is used for shows, because movies live in the v1 file.
+   */
+  trackingMovies?: string;
   /** user_tv_show_data.csv — per-show `nb_episodes_seen` + follow flags. */
   userShowData?: string;
   /** followed_tv_show.csv — active/archived status per show. */
@@ -122,6 +128,13 @@ export interface ImportSummary {
   }[];
   unmatched: string[];
   failed: { name: string; error: string }[];
+  /** Movies matched via TMDB search. */
+  moviesMatched: {
+    name: string;
+    matchedTitle: string;
+    watched: boolean;
+  }[];
+  moviesUnmatched: string[];
   /** Total real watch time from the export's `tracking-stats` row, if present. */
   totalRuntimeSeconds: number | null;
   /** Episodes TV Time recorded as watched (`ep_watch_count`), for validation. */
@@ -588,7 +601,14 @@ export function collectTvTimeFiles(
       "Couldn't find tracking-prod-records-v2.csv in the selected export."
     );
   }
-  return { tracking, userShowData, followed, specialStatus, userStatistics };
+  return {
+    tracking,
+    trackingMovies: trackingV1,
+    userShowData,
+    followed,
+    specialStatus,
+    userStatistics,
+  };
 }
 
 /**
@@ -836,6 +856,8 @@ export async function runTvTimeImport(
     matched: [],
     unmatched: [],
     failed: [],
+    moviesMatched: [],
+    moviesUnmatched: [],
     totalRuntimeSeconds: stats?.totalRuntimeSeconds ?? null,
     episodeWatchCount: stats?.episodeWatchCount ?? null,
   };
@@ -877,6 +899,8 @@ export async function runTvTimeImport(
         status: entry.status,
         added_at: entry.followedAt ?? Date.now(),
         source: "tvtime",
+        media_type: "tv",
+        watched_at: null,
       };
       await upsertShow(show);
       await setShowStatus(best.id, entry.status);
@@ -912,7 +936,152 @@ export async function runTvTimeImport(
     }
   }
 
+  // Movies live in tracking-prod-records.csv (v1), not the v2 show log.
+  const movieCsv = files.trackingMovies ?? files.tracking;
+  const movieEntries = parseTvTimeMovies(movieCsv);
+  for (let i = 0; i < movieEntries.length; i++) {
+    const entry = movieEntries[i];
+    onProgress?.({
+      current: parsed.length + i + 1,
+      total: parsed.length + movieEntries.length,
+      label: entry.name,
+    });
+    try {
+      const results = await searchMovies(entry.name);
+      const year = entry.releaseYear;
+      let best =
+        year != null
+          ? results.find((r) => r.first_air_date?.startsWith(String(year))) ??
+            null
+          : null;
+      if (!best) best = results[0] ?? null;
+      if (!best) {
+        summary.moviesUnmatched.push(entry.name);
+        continue;
+      }
+      const show: Show = {
+        id: best.id,
+        media_type: "movie",
+        title: best.name,
+        poster_path: best.poster_path,
+        overview: best.overview,
+        first_air_date: best.first_air_date,
+        status: entry.watched
+          ? "completed"
+          : entry.status === "plan"
+          ? "plan"
+          : "watching",
+        added_at: entry.watchedAt ?? Date.now(),
+        source: "tvtime",
+        watched_at: entry.watched ? entry.watchedAt ?? Date.now() : null,
+      };
+      await upsertShow(show);
+      if (entry.watched) await setMovieWatched(best.id, true);
+      else await setShowStatus(best.id, show.status, "movie");
+      summary.moviesMatched.push({
+        name: entry.name,
+        matchedTitle: best.name,
+        watched: entry.watched,
+      });
+    } catch (err: any) {
+      summary.failed.push({
+        name: entry.name,
+        error: err?.message ?? "Unknown error",
+      });
+    }
+  }
+
   return summary;
 }
 
-export { posterUrl };
+/** Parse movie rows from tracking-prod-records.csv (v1). */
+export function parseTvTimeMovies(csvText: string): {
+  name: string;
+  watched: boolean;
+  status: ShowStatus;
+  watchedAt: number | null;
+  releaseYear: number | null;
+}[] {
+  const rows = parseCsv(csvText);
+  if (rows.length < 2) return [];
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const idx = (names: string[]) => {
+    for (const n of names) {
+      const i = header.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const nameIdx = idx(["movie_name", "movie", "name"]);
+  const typeIdx = idx(["type", "action"]);
+  const createdIdx = idx(["created_at", "updated_at", "watched_at"]);
+  const releaseIdx = idx(["release_date", "movie_release_date"]);
+  if (nameIdx < 0) return [];
+
+  const byName = new Map<
+    string,
+    {
+      name: string;
+      watched: boolean;
+      status: ShowStatus;
+      watchedAt: number | null;
+      releaseYear: number | null;
+    }
+  >();
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const name = (row[nameIdx] ?? "").trim();
+    if (!name) continue;
+    const type = (typeIdx >= 0 ? row[typeIdx] ?? "" : "").toLowerCase();
+    // Skip pure TV rows if this is a mixed file without movie_name populated.
+    if (
+      type.startsWith("watch-episode") ||
+      type.startsWith("user-series") ||
+      type.includes("episode")
+    ) {
+      continue;
+    }
+
+    let watched = type === "watch" || type === "rewatch" || type.includes("watch");
+    let status: ShowStatus = "watching";
+    if (type === "towatch" || type.includes("towatch") || type.includes("plan")) {
+      watched = false;
+      status = "plan";
+    } else if (type === "follow") {
+      watched = false;
+      status = "watching";
+    }
+
+    const createdRaw = createdIdx >= 0 ? row[createdIdx] : "";
+    let watchedAt: number | null = null;
+    if (createdRaw) {
+      const ms = Date.parse(createdRaw);
+      if (!Number.isNaN(ms)) watchedAt = ms;
+    }
+    const releaseRaw = releaseIdx >= 0 ? row[releaseIdx] : "";
+    const releaseYear = releaseRaw
+      ? parseInt(String(releaseRaw).slice(0, 4), 10)
+      : NaN;
+
+    const key = name.toLowerCase();
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, {
+        name,
+        watched,
+        status,
+        watchedAt: watched ? watchedAt : null,
+        releaseYear: Number.isFinite(releaseYear) ? releaseYear : null,
+      });
+    } else {
+      if (watched) {
+        existing.watched = true;
+        existing.status = "completed";
+        if (watchedAt != null) existing.watchedAt = watchedAt;
+      }
+    }
+  }
+
+  return [...byName.values()];
+}

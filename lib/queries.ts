@@ -12,8 +12,8 @@ import {
   type ImportSummary,
   type TvTimeFiles,
 } from "./import/tvtime";
-import { getAllEpisodes, getShowDetail, searchShows } from "./tmdb";
-import type { Episode, Show, ShowStatus } from "./types";
+import { getAllEpisodes, getMovieDetail, getShowDetail, searchMovies, searchShows } from "./tmdb";
+import type { Episode, MediaType, Show, ShowStatus } from "./types";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,14 +28,17 @@ export const queryClient = new QueryClient({
 /** Central registry of query keys so invalidation stays consistent. */
 export const qk = {
   shows: (status?: ShowStatus) => ["shows", status ?? "all"] as const,
-  show: (id: number) => ["show", id] as const,
+  show: (id: number, mediaType: string = "tv") =>
+    ["show", mediaType, id] as const,
   episodes: (id: number) => ["episodes", id] as const,
   continueWatching: ["continue-watching"] as const,
   libraryOverview: ["library-overview"] as const,
   upcoming: ["upcoming"] as const,
   stats: ["stats"] as const,
-  tmdbSearch: (query: string) => ["tmdb", "search", query] as const,
+  tmdbSearch: (query: string, mediaType: string = "tv") =>
+    ["tmdb", "search", mediaType, query] as const,
   tmdbShow: (id: number) => ["tmdb", "show", id] as const,
+  tmdbMovie: (id: number) => ["tmdb", "movie", id] as const,
   tmdbEpisodes: (id: number) => ["tmdb", "episodes", id] as const,
 };
 
@@ -67,10 +70,10 @@ export function useShows(status?: ShowStatus) {
   });
 }
 
-export function useShow(id: number) {
+export function useShow(id: number, mediaType: MediaType = "tv") {
   return useQuery({
-    queryKey: qk.show(id),
-    queryFn: () => db.getShow(id),
+    queryKey: qk.show(id, mediaType),
+    queryFn: () => db.getShow(id, mediaType),
   });
 }
 
@@ -110,10 +113,15 @@ export function useStats() {
   });
 }
 
-export function useTmdbSearch(query: string, enabled: boolean) {
+export function useTmdbSearch(
+  query: string,
+  enabled: boolean,
+  mediaType: MediaType = "tv"
+) {
   return useQuery({
-    queryKey: qk.tmdbSearch(query),
-    queryFn: () => searchShows(query),
+    queryKey: qk.tmdbSearch(query, mediaType),
+    queryFn: () =>
+      mediaType === "movie" ? searchMovies(query) : searchShows(query),
     enabled: enabled && query.trim().length > 0,
     staleTime: 5 * 60_000,
   });
@@ -123,6 +131,15 @@ export function useTmdbShowDetail(id: number, enabled: boolean) {
   return useQuery({
     queryKey: qk.tmdbShow(id),
     queryFn: () => getShowDetail(id),
+    enabled,
+    staleTime: 30 * 60_000,
+  });
+}
+
+export function useTmdbMovieDetail(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.tmdbMovie(id),
+    queryFn: () => getMovieDetail(id),
     enabled,
     staleTime: 30 * 60_000,
   });
@@ -152,34 +169,73 @@ export function useAddShow() {
       show: Show;
       episodes?: Episode[];
     }) => {
+      const mediaType = show.media_type ?? "tv";
       await db.upsertShow({
         ...show,
-        status: "watching",
+        media_type: mediaType,
+        status: show.status ?? "watching",
         added_at: Date.now(),
         source: show.source ?? "manual",
+        watched_at: show.watched_at ?? null,
       });
-      const eps = episodes ?? (await getAllEpisodes(show.id));
-      await db.upsertEpisodes(eps);
-      return show.id;
+      if (mediaType === "tv") {
+        const eps = episodes ?? (await getAllEpisodes(show.id));
+        await db.upsertEpisodes(eps);
+      }
+      return { id: show.id, mediaType };
     },
-    onSuccess: (showId) => invalidateLibrary(client, showId),
+    onSuccess: ({ id, mediaType }) => {
+      invalidateLibrary(client, id);
+      client.invalidateQueries({ queryKey: qk.show(id, mediaType) });
+    },
   });
 }
 
 export function useRemoveShow() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => db.removeShow(id),
-    onSuccess: (_r, id) => invalidateLibrary(client, id),
+    mutationFn: ({
+      id,
+      mediaType = "tv",
+    }: {
+      id: number;
+      mediaType?: MediaType;
+    }) => db.removeShow(id, mediaType),
+    onSuccess: (_r, { id, mediaType = "tv" }) => {
+      invalidateLibrary(client, id);
+      client.invalidateQueries({ queryKey: qk.show(id, mediaType) });
+    },
   });
 }
 
 export function useSetShowStatus() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status }: { id: number; status: ShowStatus }) =>
-      db.setShowStatus(id, status),
-    onSuccess: (_r, { id }) => invalidateLibrary(client, id),
+    mutationFn: ({
+      id,
+      status,
+      mediaType = "tv",
+    }: {
+      id: number;
+      status: ShowStatus;
+      mediaType?: MediaType;
+    }) => db.setShowStatus(id, status, mediaType),
+    onSuccess: (_r, { id, mediaType = "tv" }) => {
+      invalidateLibrary(client, id);
+      client.invalidateQueries({ queryKey: qk.show(id, mediaType) });
+    },
+  });
+}
+
+export function useToggleMovieWatched() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, watched }: { id: number; watched: boolean }) =>
+      db.setMovieWatched(id, watched),
+    onSuccess: (_r, { id }) => {
+      invalidateLibrary(client, id);
+      client.invalidateQueries({ queryKey: qk.show(id, "movie") });
+    },
   });
 }
 
