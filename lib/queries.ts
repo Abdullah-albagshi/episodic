@@ -205,6 +205,26 @@ export function useToggleEpisode() {
   });
 }
 
+/** Mark one or more episodes watched (e.g. current + skipped priors). */
+export function useMarkEpisodesWatched() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      showId,
+      episodes,
+    }: {
+      showId: number;
+      episodes: { season: number; number: number }[];
+    }) => {
+      await Promise.all([
+        db.setEpisodesWatched(showId, episodes),
+        sleep(FAKE_LOADING_MS),
+      ]);
+    },
+    onSuccess: (_r, { showId }) => invalidateLibrary(client, showId),
+  });
+}
+
 export function useToggleSeason() {
   const client = useQueryClient();
   return useMutation({

@@ -15,6 +15,7 @@ import { SHOW_STATUSES, STATUS_LABELS, type ShowStatus } from "../../lib/types";
 const STATUS_DOT: Record<ShowStatus, string> = {
   watching: "bg-primary",
   plan: "bg-warning",
+  paused: "bg-[#5b8def]",
   completed: "bg-success",
   dropped: "bg-muted",
 };

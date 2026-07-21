@@ -27,6 +27,7 @@ import {
 import {
   useAddShow,
   useEpisodes,
+  useMarkEpisodesWatched,
   useRemoveShow,
   useSetShowStatus,
   useShow,
@@ -35,6 +36,13 @@ import {
   useTmdbEpisodes,
   useTmdbShowDetail,
 } from "../../lib/queries";
+import {
+  isEpisodeReleased,
+  skippedPriorInSeason,
+  unreleasedInSeason,
+} from "../../lib/episodes";
+import { useAppStore } from "../../lib/store";
+import { confirmAction, confirmSkipEpisodes } from "../../lib/watchConfirm";
 import {
   SHOW_STATUSES,
   STATUS_LABELS,
@@ -96,10 +104,13 @@ export default function ShowDetailScreen() {
   } = useTmdbEpisodes(showId, wantPreview);
 
   const toggleEpisode = useToggleEpisode();
+  const markEpisodes = useMarkEpisodesWatched();
   const toggleSeason = useToggleSeason();
   const setStatus = useSetShowStatus();
   const removeShow = useRemoveShow();
   const addShow = useAddShow();
+  const skipEpisodePrompt = useAppStore((s) => s.skipEpisodePrompt);
+  const setSkipEpisodePrompt = useAppStore((s) => s.setSkipEpisodePrompt);
 
   const show: Show | null = useMemo(() => {
     if (dbShow) return dbShow;
@@ -165,19 +176,81 @@ export default function ShowDetailScreen() {
     navigation.setOptions({ title: show?.title ?? "" });
   }, [navigation, show?.title]);
 
-  function onToggleEpisode(e: Episode) {
+  async function onToggleEpisode(e: Episode) {
     if (!inLibrary) return;
-    toggleEpisode.mutate({
-      showId: e.show_id,
-      season: e.season,
-      number: e.number,
-      watched: e.watched_at == null,
-    });
+    const markingWatched = e.watched_at == null;
+
+    if (!markingWatched) {
+      toggleEpisode.mutate({
+        showId: e.show_id,
+        season: e.season,
+        number: e.number,
+        watched: false,
+      });
+      return;
+    }
+
+    if (!isEpisodeReleased(e)) {
+      const ok = await confirmAction(
+        "Episode not released",
+        "This episode hasn't aired yet. Mark it as watched anyway?",
+        "Mark watched"
+      );
+      if (!ok) return;
+    }
+
+    const skipped = skippedPriorInSeason(episodes, e);
+    let toMark: { season: number; number: number }[] = [
+      { season: e.season, number: e.number },
+    ];
+
+    if (skipped.length > 0) {
+      if (skipEpisodePrompt === "never") {
+        toMark = [
+          ...skipped.map((s) => ({ season: s.season, number: s.number })),
+          ...toMark,
+        ];
+      } else {
+        const choice = await confirmSkipEpisodes(skipped.length);
+        if (choice === "cancel") return;
+        if (choice === "yes" || choice === "never") {
+          toMark = [
+            ...skipped.map((s) => ({ season: s.season, number: s.number })),
+            ...toMark,
+          ];
+          if (choice === "never") {
+            void setSkipEpisodePrompt("never");
+          }
+        }
+      }
+    }
+
+    if (toMark.length === 1) {
+      toggleEpisode.mutate({
+        showId: e.show_id,
+        season: e.season,
+        number: e.number,
+        watched: true,
+      });
+    } else {
+      markEpisodes.mutate({ showId: e.show_id, episodes: toMark });
+    }
   }
 
-  function onToggleSeason(section: Section) {
+  async function onToggleSeason(section: Section) {
     if (!inLibrary) return;
     const allWatched = section.watched === section.total;
+    if (!allWatched) {
+      const unreleased = unreleasedInSeason(episodes, section.season);
+      if (unreleased.length > 0) {
+        const ok = await confirmAction(
+          "Some episodes aren't released",
+          `${unreleased.length} episode${unreleased.length === 1 ? "" : "s"} in this season ${unreleased.length === 1 ? "hasn't" : "haven't"} aired yet. Mark the whole season watched anyway?`,
+          "Mark all"
+        );
+        if (!ok) return;
+      }
+    }
     toggleSeason.mutate({
       showId,
       season: section.season,
@@ -308,10 +381,15 @@ export default function ShowDetailScreen() {
           const watchedDate =
             item.watched_at != null ? formatWatchedDate(item.watched_at) : null;
           const episodePending =
-            toggleEpisode.isPending &&
-            toggleEpisode.variables?.showId === item.show_id &&
-            toggleEpisode.variables?.season === item.season &&
-            toggleEpisode.variables?.number === item.number;
+            (toggleEpisode.isPending &&
+              toggleEpisode.variables?.showId === item.show_id &&
+              toggleEpisode.variables?.season === item.season &&
+              toggleEpisode.variables?.number === item.number) ||
+            (markEpisodes.isPending &&
+              markEpisodes.variables?.showId === item.show_id &&
+              markEpisodes.variables?.episodes.some(
+                (t) => t.season === item.season && t.number === item.number
+              ));
           return (
             <Pressable
               onPress={() => (episodePending ? undefined : onToggleEpisode(item))}

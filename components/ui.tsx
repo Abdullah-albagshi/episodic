@@ -53,6 +53,7 @@ export function Poster({
 const STATUS_STYLES: Record<ShowStatus, string> = {
   watching: "bg-primary/20 text-primary",
   plan: "bg-warning/20 text-warning",
+  paused: "bg-[#5b8def]/20 text-[#5b8def]",
   completed: "bg-success/20 text-success",
   dropped: "bg-muted/20 text-muted",
 };

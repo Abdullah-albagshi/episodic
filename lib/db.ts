@@ -459,7 +459,7 @@ export async function syncShowCompletion(
   { demote = true }: { demote?: boolean } = {}
 ): Promise<void> {
   const show = await backend.getShow(showId);
-  if (!show || show.status === "dropped") return;
+  if (!show || show.status === "dropped" || show.status === "paused") return;
 
   const eps = await backend.getEpisodes(showId);
   const done = isFullyWatched(eps);
@@ -485,7 +485,12 @@ export async function reconcileLibraryCompletion(): Promise<void> {
     list.push(e);
   }
   for (const show of shows) {
-    if (show.status === "dropped" || show.status === "completed") continue;
+    if (
+      show.status === "dropped" ||
+      show.status === "paused" ||
+      show.status === "completed"
+    )
+      continue;
     const eps = byShow.get(show.id) ?? [];
     if (isFullyWatched(eps)) {
       await backend.setShowStatus(show.id, "completed");
@@ -500,6 +505,17 @@ export async function setEpisodeWatched(
   watched: boolean
 ): Promise<void> {
   await backend.setEpisodeWatched(showId, season, number, watched);
+  await syncShowCompletion(showId);
+}
+
+/** Mark several episodes watched in one go, then sync completion once. */
+export async function setEpisodesWatched(
+  showId: number,
+  targets: { season: number; number: number }[]
+): Promise<void> {
+  for (const t of targets) {
+    await backend.setEpisodeWatched(showId, t.season, t.number, true);
+  }
   await syncShowCompletion(showId);
 }
 
@@ -595,6 +611,7 @@ export async function getProfileStats(): Promise<ProfileStats> {
   const showsByStatus: Record<ShowStatus, number> = {
     watching: 0,
     plan: 0,
+    paused: 0,
     completed: 0,
     dropped: 0,
   };

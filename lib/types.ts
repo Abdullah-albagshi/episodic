@@ -1,8 +1,14 @@
-export type ShowStatus = "watching" | "plan" | "completed" | "dropped";
+export type ShowStatus =
+  | "watching"
+  | "plan"
+  | "paused"
+  | "completed"
+  | "dropped";
 
 export const SHOW_STATUSES: ShowStatus[] = [
   "watching",
   "plan",
+  "paused",
   "completed",
   "dropped",
 ];
@@ -10,6 +16,7 @@ export const SHOW_STATUSES: ShowStatus[] = [
 export const STATUS_LABELS: Record<ShowStatus, string> = {
   watching: "Watching",
   plan: "Plan to watch",
+  paused: "Paused",
   completed: "Completed",
   dropped: "Dropped",
 };

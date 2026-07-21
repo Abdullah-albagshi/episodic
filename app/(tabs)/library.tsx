@@ -26,6 +26,7 @@ const FILTER_LABELS: Record<LibraryFilter, string> = {
   all: "All",
   watching: "Watching",
   plan: "Plan",
+  paused: "Paused",
   completed: "Completed",
   dropped: "Dropped",
 };
@@ -58,6 +59,7 @@ export default function LibraryScreen() {
       all: entries?.length ?? 0,
       watching: 0,
       plan: 0,
+      paused: 0,
       completed: 0,
       dropped: 0,
     };
