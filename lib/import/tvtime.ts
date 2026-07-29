@@ -10,6 +10,8 @@ import {
 import {
   findShowByTvdbId,
   getAllEpisodes,
+  getMovieDetail,
+  getShowDetail,
   searchMovies,
   searchShows,
   type TmdbSearchResult,
@@ -117,27 +119,84 @@ export interface ImportProgress {
   label: string;
 }
 
+/** A show that couldn't be auto-matched — kept so the UI can rematch it. */
+export interface UnmatchedShow {
+  name: string;
+  entry: ParsedShow;
+}
+
+/** A movie that couldn't be auto-matched. */
+export interface UnmatchedMovie {
+  name: string;
+  entry: ParsedMovie;
+}
+
+export interface MatchedShow {
+  name: string;
+  matchedTitle: string;
+  /** Episodes actually marked watched on the matched TMDB show. */
+  watched: number;
+  /** Episodes the export said were watched (for validation). */
+  expected: number;
+}
+
+export interface MatchedMovie {
+  name: string;
+  matchedTitle: string;
+  watched: boolean;
+}
+
 export interface ImportSummary {
-  matched: {
-    name: string;
-    matchedTitle: string;
-    /** Episodes actually marked watched on the matched TMDB show. */
-    watched: number;
-    /** Episodes the export said were watched (for validation). */
-    expected: number;
-  }[];
-  unmatched: string[];
+  matched: MatchedShow[];
+  unmatched: UnmatchedShow[];
   failed: { name: string; error: string }[];
-  /** Movies matched via TMDB search. */
-  moviesMatched: {
-    name: string;
-    matchedTitle: string;
-    watched: boolean;
-  }[];
-  moviesUnmatched: string[];
+  moviesMatched: MatchedMovie[];
+  moviesUnmatched: UnmatchedMovie[];
   /** Total real watch time from the export's `tracking-stats` row, if present. */
   totalRuntimeSeconds: number | null;
   /** Episodes TV Time recorded as watched (`ep_watch_count`), for validation. */
+  episodeWatchCount: number | null;
+  /** True when the user aborted mid-import; partial results are still returned. */
+  cancelled?: boolean;
+}
+
+export interface ParsedMovie {
+  name: string;
+  watched: boolean;
+  status: ShowStatus;
+  watchedAt: number | null;
+  releaseYear: number | null;
+}
+
+export interface ImportOptions {
+  onProgress?: (p: ImportProgress) => void;
+  /** Abort mid-import; already-written items stay in the DB. */
+  signal?: AbortSignal;
+  /**
+   * Resolve TMDB matches without writing anything. Useful as a preview before
+   * a full import. Episode lists are not fetched in dry-run.
+   */
+  dryRun?: boolean;
+  /** Parallel TMDB lookups (default 4). */
+  concurrency?: number;
+}
+
+/** Dry-run preview of what an import would do. */
+export interface ImportPreview {
+  shows: {
+    name: string;
+    matchTitle: string | null;
+    tmdbId: number | null;
+    episodeCount: number;
+    status: ShowStatus;
+  }[];
+  movies: {
+    name: string;
+    matchTitle: string | null;
+    tmdbId: number | null;
+    watched: boolean;
+  }[];
+  totalRuntimeSeconds: number | null;
   episodeWatchCount: number | null;
 }
 
@@ -825,13 +884,187 @@ function enrichEntries(
   }
 }
 
-export async function runTvTimeImport(
-  files: TvTimeFiles,
-  onProgress?: (p: ImportProgress) => void
-): Promise<ImportSummary> {
+function assertNotAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    const err = new Error("Import cancelled");
+    err.name = "AbortError";
+    throw err;
+  }
+}
+
+/** Run async work over `items` with a fixed worker pool. */
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Math.min(Math.max(1, concurrency), items.length);
+
+  async function worker() {
+    while (true) {
+      assertNotAborted(signal);
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
+}
+
+async function resolveShowMatch(
+  entry: ParsedShow
+): Promise<TmdbSearchResult | null> {
+  if (entry.tvdbId != null) {
+    const byId = await findShowByTvdbId(entry.tvdbId);
+    if (byId) return byId;
+  }
+  return pickBestMatch(await searchShows(entry.name), entry.name);
+}
+
+async function resolveMovieMatch(
+  entry: ParsedMovie
+): Promise<TmdbSearchResult | null> {
+  const results = await searchMovies(entry.name);
+  const year = entry.releaseYear;
+  if (year != null) {
+    const byYear =
+      results.find((r) => r.first_air_date?.startsWith(String(year))) ?? null;
+    if (byYear) return byYear;
+  }
+  return results[0] ?? null;
+}
+
+/**
+ * Write one parsed TV Time show into the local library, using an optional
+ * explicit TMDB id (manual rematch) or auto-resolution.
+ */
+export async function importParsedShow(
+  entry: ParsedShow,
+  tmdbId?: number
+): Promise<MatchedShow> {
+  let best: TmdbSearchResult | null = null;
+  if (tmdbId != null) {
+    const detail = await getShowDetail(tmdbId);
+    best = {
+      id: detail.id,
+      name: detail.name,
+      poster_path: detail.poster_path,
+      overview: detail.overview,
+      first_air_date: detail.first_air_date,
+      media_type: "tv",
+    };
+  } else {
+    best = await resolveShowMatch(entry);
+  }
+  if (!best) {
+    throw new Error(`No TMDB match for "${entry.name}"`);
+  }
+
+  const show: Show = {
+    id: best.id,
+    title: best.name,
+    poster_path: best.poster_path,
+    overview: best.overview,
+    first_air_date: best.first_air_date,
+    status: entry.status,
+    added_at: entry.followedAt ?? Date.now(),
+    source: "tvtime",
+    media_type: "tv",
+    watched_at: null,
+  };
+  await upsertShow(show);
+  await setShowStatus(best.id, entry.status);
+
+  const needsSpecials = entry.episodes.some((e) => e.season === 0);
+  const episodes = await getAllEpisodes(best.id, needsSpecials);
+  const now = Date.now();
+  const watchedMap = resolveWatched(entry, episodes, now);
+
+  const withWatched: Episode[] = episodes.map((ep) => ({
+    ...ep,
+    watched_at: watchedMap.get(`${ep.season}:${ep.number}`) ?? null,
+  }));
+  await upsertEpisodes(withWatched);
+  await syncShowCompletion(best.id, { demote: false });
+
+  return {
+    name: entry.name,
+    matchedTitle: best.name,
+    watched: watchedMap.size,
+    expected: entry.expectedSeen ?? (entry.episodes.length || watchedMap.size),
+  };
+}
+
+/** Rematch an unmatched show to a specific TMDB title and restore watches. */
+export async function rematchShow(
+  entry: ParsedShow,
+  tmdbId: number
+): Promise<MatchedShow> {
+  return importParsedShow(entry, tmdbId);
+}
+
+export async function importParsedMovie(
+  entry: ParsedMovie,
+  tmdbId?: number
+): Promise<MatchedMovie> {
+  let best: TmdbSearchResult | null = null;
+  if (tmdbId != null) {
+    const detail = await getMovieDetail(tmdbId);
+    best = {
+      id: detail.id,
+      name: detail.title,
+      poster_path: detail.poster_path,
+      overview: detail.overview,
+      first_air_date: detail.release_date,
+      media_type: "movie",
+    };
+  } else {
+    best = await resolveMovieMatch(entry);
+  }
+  if (!best) {
+    throw new Error(`No TMDB match for movie "${entry.name}"`);
+  }
+
+  const show: Show = {
+    id: best.id,
+    media_type: "movie",
+    title: best.name,
+    poster_path: best.poster_path,
+    overview: best.overview,
+    first_air_date: best.first_air_date,
+    status: entry.watched
+      ? "completed"
+      : entry.status === "plan"
+      ? "plan"
+      : "watching",
+    added_at: entry.watchedAt ?? Date.now(),
+    source: "tvtime",
+    watched_at: entry.watched ? entry.watchedAt ?? Date.now() : null,
+  };
+  await upsertShow(show);
+  if (entry.watched) await setMovieWatched(best.id, true);
+  else await setShowStatus(best.id, show.status, "movie");
+
+  return {
+    name: entry.name,
+    matchedTitle: best.name,
+    watched: entry.watched,
+  };
+}
+
+function buildParsedPayload(files: TvTimeFiles): {
+  parsed: ParsedShow[];
+  movieEntries: ParsedMovie[];
+  stats: TvTimeStats | null;
+} {
   const parsed = parseTvTimeCsv(files.tracking);
   let stats = parseTvTimeStats(files.tracking);
-  // Fill gaps from user_statistics.csv when tracking-stats is incomplete.
   if (files.userStatistics) {
     const fallback = parseUserStatistics(files.userStatistics);
     if (fallback) {
@@ -852,6 +1085,100 @@ export async function runTvTimeImport(
     : [];
   enrichEntries(parsed, userData, followed, specialStatus);
 
+  const movieCsv = files.trackingMovies ?? files.tracking;
+  const movieEntries = parseTvTimeMovies(movieCsv);
+  return { parsed, movieEntries, stats };
+}
+
+/** Preview matches without writing to the database. */
+export async function previewTvTimeImport(
+  files: TvTimeFiles,
+  options: ImportOptions = {}
+): Promise<ImportPreview> {
+  const { parsed, movieEntries, stats } = buildParsedPayload(files);
+  const concurrency = options.concurrency ?? 4;
+  const total = parsed.length + movieEntries.length;
+  let done = 0;
+
+  const shows = await mapPool(
+    parsed,
+    concurrency,
+    async (entry) => {
+      assertNotAborted(options.signal);
+      options.onProgress?.({
+        current: ++done,
+        total,
+        label: entry.name,
+      });
+      try {
+        const best = await resolveShowMatch(entry);
+        return {
+          name: entry.name,
+          matchTitle: best?.name ?? null,
+          tmdbId: best?.id ?? null,
+          episodeCount: entry.episodes.length || entry.expectedSeen || 0,
+          status: entry.status,
+        };
+      } catch {
+        return {
+          name: entry.name,
+          matchTitle: null,
+          tmdbId: null,
+          episodeCount: entry.episodes.length || entry.expectedSeen || 0,
+          status: entry.status,
+        };
+      }
+    },
+    options.signal
+  );
+
+  const movies = await mapPool(
+    movieEntries,
+    concurrency,
+    async (entry) => {
+      assertNotAborted(options.signal);
+      options.onProgress?.({
+        current: ++done,
+        total,
+        label: entry.name,
+      });
+      try {
+        const best = await resolveMovieMatch(entry);
+        return {
+          name: entry.name,
+          matchTitle: best?.name ?? null,
+          tmdbId: best?.id ?? null,
+          watched: entry.watched,
+        };
+      } catch {
+        return {
+          name: entry.name,
+          matchTitle: null,
+          tmdbId: null,
+          watched: entry.watched,
+        };
+      }
+    },
+    options.signal
+  );
+
+  return {
+    shows,
+    movies,
+    totalRuntimeSeconds: stats?.totalRuntimeSeconds ?? null,
+    episodeWatchCount: stats?.episodeWatchCount ?? null,
+  };
+}
+
+export async function runTvTimeImport(
+  files: TvTimeFiles,
+  options: ImportOptions | ((p: ImportProgress) => void) = {}
+): Promise<ImportSummary> {
+  const opts: ImportOptions =
+    typeof options === "function" ? { onProgress: options } : options;
+  const concurrency = opts.concurrency ?? 4;
+  const { parsed, movieEntries, stats } = buildParsedPayload(files);
+
   const summary: ImportSummary = {
     matched: [],
     unmatched: [],
@@ -862,146 +1189,126 @@ export async function runTvTimeImport(
     episodeWatchCount: stats?.episodeWatchCount ?? null,
   };
 
-  // Persist TV Time's exact total watch time so the profile can show it
-  // instead of a per-episode estimate.
-  if (stats?.totalRuntimeSeconds != null && stats.totalRuntimeSeconds > 0) {
+  if (
+    !opts.dryRun &&
+    stats?.totalRuntimeSeconds != null &&
+    stats.totalRuntimeSeconds > 0
+  ) {
     await setSetting(
       SETTING_TVTIME_RUNTIME_SEC,
       String(stats.totalRuntimeSeconds)
     );
   }
 
-  for (let i = 0; i < parsed.length; i++) {
-    const entry = parsed[i];
-    onProgress?.({ current: i + 1, total: parsed.length, label: entry.name });
+  const total = parsed.length + movieEntries.length;
+  let done = 0;
+  let cancelled = false;
 
-    try {
-      // Resolve the exact show via its TVDB id when available; that avoids the
-      // wrong-match problems of name search (e.g. remakes, movies, spin-offs).
-      let best: TmdbSearchResult | null = null;
-      if (entry.tvdbId != null) {
-        best = await findShowByTvdbId(entry.tvdbId);
+  const bump = (label: string) => {
+    opts.onProgress?.({ current: ++done, total, label });
+  };
+
+  try {
+    if (opts.dryRun) {
+      // Dry-run path kept for callers that pass dryRun into runTvTimeImport
+      // directly; prefer previewTvTimeImport for a typed preview result.
+      const preview = await previewTvTimeImport(files, opts);
+      for (const s of preview.shows) {
+        if (s.matchTitle) {
+          summary.matched.push({
+            name: s.name,
+            matchedTitle: s.matchTitle,
+            watched: 0,
+            expected: s.episodeCount,
+          });
+        } else {
+          const entry = parsed.find((p) => p.name === s.name)!;
+          summary.unmatched.push({ name: s.name, entry });
+        }
       }
-      if (!best) {
-        best = pickBestMatch(await searchShows(entry.name), entry.name);
+      for (const m of preview.movies) {
+        if (m.matchTitle) {
+          summary.moviesMatched.push({
+            name: m.name,
+            matchedTitle: m.matchTitle,
+            watched: m.watched,
+          });
+        } else {
+          const entry = movieEntries.find((p) => p.name === m.name)!;
+          summary.moviesUnmatched.push({ name: m.name, entry });
+        }
       }
-      if (!best) {
-        summary.unmatched.push(entry.name);
-        continue;
-      }
+      return summary;
+    }
 
-      const show: Show = {
-        id: best.id,
-        title: best.name,
-        poster_path: best.poster_path,
-        overview: best.overview,
-        first_air_date: best.first_air_date,
-        status: entry.status,
-        added_at: entry.followedAt ?? Date.now(),
-        source: "tvtime",
-        media_type: "tv",
-        watched_at: null,
-      };
-      await upsertShow(show);
-      await setShowStatus(best.id, entry.status);
+    await mapPool(
+      parsed,
+      concurrency,
+      async (entry) => {
+        assertNotAborted(opts.signal);
+        bump(entry.name);
+        try {
+          const result = await importParsedShow(entry);
+          summary.matched.push(result);
+        } catch (err: any) {
+          if (err?.name === "AbortError") throw err;
+          if (
+            typeof err?.message === "string" &&
+            err.message.startsWith('No TMDB match')
+          ) {
+            summary.unmatched.push({ name: entry.name, entry });
+          } else {
+            summary.failed.push({
+              name: entry.name,
+              error: err?.message ?? "Unknown error",
+            });
+          }
+        }
+      },
+      opts.signal
+    );
 
-      // Fetch specials only when the export recorded watched specials, so we
-      // recover them without cluttering every show with unwatched extras.
-      const needsSpecials = entry.episodes.some((e) => e.season === 0);
-      const episodes = await getAllEpisodes(best.id, needsSpecials);
-      const now = Date.now();
-      const watchedMap = resolveWatched(entry, episodes, now);
-
-      const withWatched: Episode[] = episodes.map((ep) => ({
-        ...ep,
-        watched_at: watchedMap.get(`${ep.season}:${ep.number}`) ?? null,
-      }));
-      await upsertEpisodes(withWatched);
-      // Promote to completed when every main season is watched (specials ignored).
-      // Don't demote TV Time archived shows that didn't match 100% on TMDB.
-      await syncShowCompletion(best.id, { demote: false });
-
-      summary.matched.push({
-        name: entry.name,
-        matchedTitle: best.name,
-        watched: watchedMap.size,
-        expected:
-          entry.expectedSeen ?? (entry.episodes.length || watchedMap.size),
-      });
-    } catch (err: any) {
-      summary.failed.push({
-        name: entry.name,
-        error: err?.message ?? "Unknown error",
-      });
+    await mapPool(
+      movieEntries,
+      concurrency,
+      async (entry) => {
+        assertNotAborted(opts.signal);
+        bump(entry.name);
+        try {
+          const result = await importParsedMovie(entry);
+          summary.moviesMatched.push(result);
+        } catch (err: any) {
+          if (err?.name === "AbortError") throw err;
+          if (
+            typeof err?.message === "string" &&
+            err.message.startsWith('No TMDB match')
+          ) {
+            summary.moviesUnmatched.push({ name: entry.name, entry });
+          } else {
+            summary.failed.push({
+              name: entry.name,
+              error: err?.message ?? "Unknown error",
+            });
+          }
+        }
+      },
+      opts.signal
+    );
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      summary.cancelled = true;
+      cancelled = true;
+    } else {
+      throw err;
     }
   }
 
-  // Movies live in tracking-prod-records.csv (v1), not the v2 show log.
-  const movieCsv = files.trackingMovies ?? files.tracking;
-  const movieEntries = parseTvTimeMovies(movieCsv);
-  for (let i = 0; i < movieEntries.length; i++) {
-    const entry = movieEntries[i];
-    onProgress?.({
-      current: parsed.length + i + 1,
-      total: parsed.length + movieEntries.length,
-      label: entry.name,
-    });
-    try {
-      const results = await searchMovies(entry.name);
-      const year = entry.releaseYear;
-      let best =
-        year != null
-          ? results.find((r) => r.first_air_date?.startsWith(String(year))) ??
-            null
-          : null;
-      if (!best) best = results[0] ?? null;
-      if (!best) {
-        summary.moviesUnmatched.push(entry.name);
-        continue;
-      }
-      const show: Show = {
-        id: best.id,
-        media_type: "movie",
-        title: best.name,
-        poster_path: best.poster_path,
-        overview: best.overview,
-        first_air_date: best.first_air_date,
-        status: entry.watched
-          ? "completed"
-          : entry.status === "plan"
-          ? "plan"
-          : "watching",
-        added_at: entry.watchedAt ?? Date.now(),
-        source: "tvtime",
-        watched_at: entry.watched ? entry.watchedAt ?? Date.now() : null,
-      };
-      await upsertShow(show);
-      if (entry.watched) await setMovieWatched(best.id, true);
-      else await setShowStatus(best.id, show.status, "movie");
-      summary.moviesMatched.push({
-        name: entry.name,
-        matchedTitle: best.name,
-        watched: entry.watched,
-      });
-    } catch (err: any) {
-      summary.failed.push({
-        name: entry.name,
-        error: err?.message ?? "Unknown error",
-      });
-    }
-  }
-
+  if (cancelled) summary.cancelled = true;
   return summary;
 }
 
 /** Parse movie rows from tracking-prod-records.csv (v1). */
-export function parseTvTimeMovies(csvText: string): {
-  name: string;
-  watched: boolean;
-  status: ShowStatus;
-  watchedAt: number | null;
-  releaseYear: number | null;
-}[] {
+export function parseTvTimeMovies(csvText: string): ParsedMovie[] {
   const rows = parseCsv(csvText);
   if (rows.length < 2) return [];
   const header = rows[0].map((h) => h.trim().toLowerCase());
@@ -1018,23 +1325,13 @@ export function parseTvTimeMovies(csvText: string): {
   const releaseIdx = idx(["release_date", "movie_release_date"]);
   if (nameIdx < 0) return [];
 
-  const byName = new Map<
-    string,
-    {
-      name: string;
-      watched: boolean;
-      status: ShowStatus;
-      watchedAt: number | null;
-      releaseYear: number | null;
-    }
-  >();
+  const byName = new Map<string, ParsedMovie>();
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     const name = (row[nameIdx] ?? "").trim();
     if (!name) continue;
     const type = (typeIdx >= 0 ? row[typeIdx] ?? "" : "").toLowerCase();
-    // Skip pure TV rows if this is a mixed file without movie_name populated.
     if (
       type.startsWith("watch-episode") ||
       type.startsWith("user-series") ||
@@ -1043,7 +1340,8 @@ export function parseTvTimeMovies(csvText: string): {
       continue;
     }
 
-    let watched = type === "watch" || type === "rewatch" || type.includes("watch");
+    let watched =
+      type === "watch" || type === "rewatch" || type.includes("watch");
     let status: ShowStatus = "watching";
     if (type === "towatch" || type.includes("towatch") || type.includes("plan")) {
       watched = false;
@@ -1074,12 +1372,10 @@ export function parseTvTimeMovies(csvText: string): {
         watchedAt: watched ? watchedAt : null,
         releaseYear: Number.isFinite(releaseYear) ? releaseYear : null,
       });
-    } else {
-      if (watched) {
-        existing.watched = true;
-        existing.status = "completed";
-        if (watchedAt != null) existing.watchedAt = watchedAt;
-      }
+    } else if (watched) {
+      existing.watched = true;
+      existing.status = "completed";
+      if (watchedAt != null) existing.watchedAt = watchedAt;
     }
   }
 

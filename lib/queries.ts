@@ -7,9 +7,15 @@ import {
 import * as db from "./db";
 import { exportBackup, restoreBackup } from "./export";
 import {
+  previewTvTimeImport,
+  rematchShow,
+  importParsedMovie,
   runTvTimeImport,
+  type ImportPreview,
   type ImportProgress,
   type ImportSummary,
+  type ParsedMovie,
+  type ParsedShow,
   type TvTimeFiles,
 } from "./import/tvtime";
 import { getAllEpisodes, getMovieDetail, getShowDetail, searchMovies, searchShows } from "./tmdb";
@@ -317,9 +323,58 @@ export function useImportTvTime() {
   return useMutation<
     ImportSummary,
     Error,
-    { files: TvTimeFiles; onProgress?: (p: ImportProgress) => void }
+    {
+      files: TvTimeFiles;
+      onProgress?: (p: ImportProgress) => void;
+      signal?: AbortSignal;
+      concurrency?: number;
+    }
   >({
-    mutationFn: ({ files, onProgress }) => runTvTimeImport(files, onProgress),
+    mutationFn: ({ files, onProgress, signal, concurrency }) =>
+      runTvTimeImport(files, { onProgress, signal, concurrency }),
+    onSuccess: () => invalidateLibrary(client),
+  });
+}
+
+export function usePreviewTvTimeImport() {
+  return useMutation<
+    ImportPreview,
+    Error,
+    {
+      files: TvTimeFiles;
+      onProgress?: (p: ImportProgress) => void;
+      signal?: AbortSignal;
+    }
+  >({
+    mutationFn: ({ files, onProgress, signal }) =>
+      previewTvTimeImport(files, { onProgress, signal }),
+  });
+}
+
+export function useRematchShow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      entry,
+      tmdbId,
+    }: {
+      entry: ParsedShow;
+      tmdbId: number;
+    }) => rematchShow(entry, tmdbId),
+    onSuccess: () => invalidateLibrary(client),
+  });
+}
+
+export function useRematchMovie() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      entry,
+      tmdbId,
+    }: {
+      entry: ParsedMovie;
+      tmdbId: number;
+    }) => importParsedMovie(entry, tmdbId),
     onSuccess: () => invalidateLibrary(client),
   });
 }

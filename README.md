@@ -12,8 +12,9 @@ Runs on **iOS, Android, and the web** from one codebase.
 - **Show detail** — seasons and episodes; tap to mark watched, or mark a whole season at once.
 - **Search** — find shows via [TMDB](https://www.themoviedb.org) and add them to your library.
 - **Upcoming** — episodes with future air dates for the shows you follow.
-- **Import from TV Time** — load your GDPR export (`tracking-prod-records-v2.csv`) and restore your watched history.
+- **Import from TV Time** — dry-run preview, parallel import with cancel, and manual TMDB rematch for unmatched titles.
 - **Backup & restore** — export your whole library to JSON so you're never locked in again.
+- **Installable builds** — EAS profiles for Android APK / App Bundle and iOS builds (`eas.json`).
 
 ## Tech stack
 
@@ -50,12 +51,35 @@ On first launch, go to **Settings → TMDB API key**, paste your key, and save. 
 TV Time deletes all personal data after **July 15, 2026** — export yours now, even before you finish setting this up.
 
 1. In TV Time, request your data export via their GDPR self-service download.
-2. Unzip it and locate `tracking-prod-records-v2.csv`.
-3. In Episodic: **Settings → Import from TV Time → Select CSV file**.
+2. In Episodic: **Profile / Settings → Import from TV Time → Select GDPR ZIP or CSVs** (the ZIP is preferred; no need to unzip).
+3. Review the **dry-run preview** (nothing is written yet).
+4. Tap **Import for real**. Matching runs in parallel; you can **Cancel** mid-import (already-imported items are kept).
+5. For any **Shows/Movies not found**, tap **Rematch**, search TMDB, and pick the correct title — watched history from the export is applied automatically.
 
-Each show is matched against TMDB and your watched episodes are restored. Shows that can't be matched automatically are listed so you can add them manually via Search.
+## Installable builds (EAS)
 
-> The importer matches TV Time's CSV columns by keyword (series name / season / episode / watched), so it tolerates the format differences across TV Time export versions.
+Episodic can be packaged as a real Android APK / iOS build with [EAS Build](https://docs.expo.dev/build/introduction/). Config lives in `eas.json`.
+
+```bash
+# one-time: Expo account + link this project
+npm i -g eas-cli
+eas login
+eas init          # creates an Expo project and writes the projectId into app.json
+
+# internal/test APK (Android) or ad-hoc build (iOS)
+npm run build:android
+npm run build:ios
+
+# store-ready
+npm run build:android:prod
+npm run build:ios:prod
+```
+
+- **preview** profile → Android APK you can sideload; iOS internal distribution.
+- **production** profile → Android App Bundle / iOS App Store build.
+- Bump `expo.version`, `android.versionCode`, and `ios.buildNumber` in `app.json` before each store release.
+
+You need an Expo account. iOS device builds also need an Apple Developer account when you distribute outside Expo Go.
 
 ## Project structure
 
