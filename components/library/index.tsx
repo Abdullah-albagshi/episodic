@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRef, useState } from "react";
-import { Modal, Pressable, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import type { LibraryFilter, LibraryView } from "../../lib/store";
 import { useTapGuard } from "../../lib/tapGuard";
 import type { LibraryEntry } from "../../lib/types";
@@ -19,9 +19,8 @@ const VIEW_OPTIONS: {
 ];
 
 /**
- * Three-dots trigger that opens a popover with the Library layout options.
- * Keeps the view control out of the filter row so it doesn't crowd small
- * screens. The popover is anchored just under the trigger button.
+ * Three-dots trigger that opens a bottom sheet with Library layout options.
+ * A sheet stays on-screen on small phones; a popover near the top often clips.
  */
 export function LibraryOptionsMenu({
   value,
@@ -31,76 +30,56 @@ export function LibraryOptionsMenu({
   onChange: (view: LibraryView) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState({ top: 0, right: 16 });
-  const btnRef = useRef<View>(null);
-
-  function openMenu() {
-    const node = btnRef.current;
-    if (node?.measureInWindow) {
-      node.measureInWindow((x, y, width, height) => {
-        setAnchor({ top: y + height + 6, right: 16 });
-        setOpen(true);
-      });
-    } else {
-      setOpen(true);
-    }
-  }
 
   return (
     <>
       <Pressable
-        ref={btnRef}
-        onPress={openMenu}
+        onPress={() => setOpen(true)}
         hitSlop={8}
         className="items-center justify-center rounded-full w-9 h-9 bg-surface active:opacity-70"
       >
         <Ionicons name="ellipsis-horizontal" size={18} color="#f2f2f7" />
       </Pressable>
 
-      <Modal
+      <BottomSheet
         visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
+        onClose={() => setOpen(false)}
+        title="View"
       >
-        <Pressable className="flex-1" onPress={() => setOpen(false)}>
-          <View
-            style={{ position: "absolute", top: anchor.top, right: anchor.right }}
-            className="w-64 p-3 border bg-surface rounded-2xl border-border"
-          >
-            <Text className="mb-2 text-xs font-semibold tracking-wide uppercase text-muted">
-              View
-            </Text>
-            <View className="flex-row flex-wrap gap-2">
-              {VIEW_OPTIONS.map(({ view, label, icon }) => {
-                const active = view === value;
-                return (
-                  <Pressable
-                    key={view}
-                    onPress={() => onChange(view)}
-                    className={`h-9 px-3 rounded-full flex-row items-center gap-1.5 ${
-                      active ? "bg-primary" : "bg-surface2"
-                    }`}
-                  >
-                    <Ionicons
-                      name={icon}
-                      size={14}
-                      color={active ? "#fff" : "#9a9ab0"}
-                    />
-                    <Text
-                      className={`text-xs font-medium ${
-                        active ? "text-white" : "text-muted"
-                      }`}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
+        <View className="gap-1">
+          {VIEW_OPTIONS.map(({ view, label, icon }) => {
+            const active = view === value;
+            return (
+              <Pressable
+                key={view}
+                onPress={() => {
+                  onChange(view);
+                  setOpen(false);
+                }}
+                className={`flex-row items-center h-12 px-3 rounded-xl gap-3 ${
+                  active ? "bg-primary/15" : "active:bg-surface2"
+                }`}
+              >
+                <Ionicons
+                  name={icon}
+                  size={18}
+                  color={active ? "#7c5cff" : "#9a9ab0"}
+                />
+                <Text
+                  className={`flex-1 font-medium ${
+                    active ? "text-primary" : "text-text"
+                  }`}
+                >
+                  {label}
+                </Text>
+                {active ? (
+                  <Ionicons name="checkmark" size={18} color="#7c5cff" />
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      </BottomSheet>
     </>
   );
 }
