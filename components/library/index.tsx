@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
 import type { LibraryFilter, LibraryView } from "../../lib/store";
+import { useTapGuard } from "../../lib/tapGuard";
 import type { LibraryEntry } from "../../lib/types";
 import { BottomSheet, Poster, ProgressBar } from "../ui";
 
@@ -171,9 +172,14 @@ export function LibraryGridItem({
   entry: LibraryEntry;
   onPress: () => void;
 }) {
+  const tap = useTapGuard();
   return (
     <Pressable
-      onPress={onPress}
+      onPressIn={tap.onPressIn}
+      onPress={(e) => {
+        if (!tap.wasTap(e)) return;
+        onPress();
+      }}
       className="flex-1 active:opacity-80 max-w-[25%]"
     >
       <Poster
@@ -199,10 +205,15 @@ export function LibraryCompactRow({
   entry: LibraryEntry;
   onPress: () => void;
 }) {
+  const tap = useTapGuard();
   const { show, next, watchedCount, totalCount } = entry;
   return (
     <Pressable
-      onPress={onPress}
+      onPressIn={tap.onPressIn}
+      onPress={(e) => {
+        if (!tap.wasTap(e)) return;
+        onPress();
+      }}
       className="flex-row items-center py-2.5 active:opacity-70"
     >
       <Poster

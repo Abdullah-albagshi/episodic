@@ -5,6 +5,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useTapGuard } from "../../lib/tapGuard";
 import type { Episode, Show } from "../../lib/types";
 import { EpisodeStill } from "./EpisodeStill";
 import { Poster } from "./Poster";
@@ -37,6 +38,7 @@ export function EpisodeProgressCard({
   onMarkWatched?: () => void;
   marking?: boolean;
 }) {
+  const tap = useTapGuard();
   const caughtUpLabel =
     show.status === "completed"
       ? "Completed"
@@ -50,7 +52,11 @@ export function EpisodeProgressCard({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPressIn={tap.onPressIn}
+      onPress={(e) => {
+        if (!tap.wasTap(e)) return;
+        onPress();
+      }}
       className="flex-row bg-surface rounded-2xl overflow-hidden active:opacity-90"
     >
       <Poster
@@ -80,7 +86,11 @@ export function EpisodeProgressCard({
             </View>
             {onMarkWatched ? (
               <Pressable
-                onPress={marking ? undefined : onMarkWatched}
+                onPressIn={tap.onPressIn}
+                onPress={(e) => {
+                  if (marking || !tap.wasTap(e)) return;
+                  onMarkWatched();
+                }}
                 disabled={marking}
                 hitSlop={10}
                 className="active:opacity-60 pr-3"

@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import { formatDateYmd } from "../../lib/dates";
+import { useTapGuard } from "../../lib/tapGuard";
 import type { Episode } from "../../lib/types";
 import {
   EmptyState,
@@ -54,6 +55,8 @@ export function ShowEpisodesTab({
   episodePending: (e: Episode) => boolean;
   ListHeaderComponent?: ReactElement | null;
 }) {
+  const tap = useTapGuard();
+
   return (
     <SectionList
       sections={sections}
@@ -67,7 +70,11 @@ export function ShowEpisodesTab({
         return (
           <View className="flex-row items-center justify-between px-4 pt-5 pb-2 bg-bg">
             <Pressable
-              onPress={() => onToggleCollapse(s)}
+              onPressIn={tap.onPressIn}
+              onPress={(e) => {
+                if (!tap.wasTap(e)) return;
+                onToggleCollapse(s);
+              }}
               className="flex-row items-center gap-2 flex-1 active:opacity-70"
             >
               <Ionicons
@@ -84,7 +91,11 @@ export function ShowEpisodesTab({
             </Pressable>
             {inLibrary ? (
               <Pressable
-                onPress={pending ? undefined : () => onToggleSeason(s)}
+                onPressIn={tap.onPressIn}
+                onPress={(e) => {
+                  if (pending || !tap.wasTap(e)) return;
+                  onToggleSeason(s);
+                }}
                 disabled={pending}
                 hitSlop={8}
                 className="flex-row items-center gap-1 active:opacity-70 pl-2"
@@ -112,7 +123,11 @@ export function ShowEpisodesTab({
         const pending = episodePending(item);
         return (
           <Pressable
-            onPress={() => (pending ? undefined : onToggleEpisode(item))}
+            onPressIn={tap.onPressIn}
+            onPress={(e) => {
+              if (!inLibrary || pending || !tap.wasTap(e)) return;
+              onToggleEpisode(item);
+            }}
             disabled={!inLibrary || pending}
             className="flex-row items-center px-4 py-2.5 active:opacity-70"
           >

@@ -4,7 +4,7 @@ import {
   useRouter,
 } from "expo-router";
 import { useLayoutEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, ScrollView, View } from "react-native";
 import {
   ShowEpisodesTab,
   type EpisodeSection,
@@ -17,6 +17,7 @@ import {
   ErrorState,
   errorMessage,
   Loading,
+  SwipeTabs,
 } from "../../components/ui";
 import {
   isEpisodeReleased,
@@ -41,39 +42,10 @@ import { confirmAction, confirmSkipEpisodes } from "../../lib/watchConfirm";
 
 type Tab = "info" | "episodes";
 
-function TabBar({
-  tab,
-  onChange,
-}: {
-  tab: Tab;
-  onChange: (t: Tab) => void;
-}) {
-  return (
-    <View className="flex-row border-b border-border mt-4 px-4 bg-bg">
-      {(
-        [
-          ["info", "Info"],
-          ["episodes", "Episodes"],
-        ] as const
-      ).map(([key, label]) => {
-        const active = tab === key;
-        return (
-          <Pressable
-            key={key}
-            onPress={() => onChange(key)}
-            className={`mr-5 pb-3 ${active ? "border-b-2 border-text" : ""}`}
-          >
-            <Text
-              className={`font-semibold ${active ? "text-text" : "text-muted"}`}
-            >
-              {label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
+const SHOW_TABS = [
+  { key: "info" as const, label: "Info" },
+  { key: "episodes" as const, label: "Episodes" },
+];
 
 export default function ShowDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -294,30 +266,6 @@ export default function ShowDetailScreen() {
     }
   }
 
-  const header = (
-    <>
-      <ShowHero
-        show={show}
-        detail={tmdbDetail}
-        inLibrary={inLibrary}
-        totalWatched={totalWatched}
-        total={totalMain}
-        onOpenStatus={() => setStatusOpen(true)}
-      />
-      {!inLibrary ? (
-        <View className="px-4 pt-4">
-          <Button
-            label={addShow.isPending ? "Adding…" : "Add to library"}
-            icon="add"
-            onPress={onAdd}
-            disabled={addShow.isPending || !show}
-          />
-        </View>
-      ) : null}
-      <TabBar tab={tab} onChange={setTab} />
-    </>
-  );
-
   if (showLoading || (!dbShow && detailLoading)) {
     return (
       <View className="flex-1 bg-bg">
@@ -340,9 +288,32 @@ export default function ShowDetailScreen() {
 
   return (
     <View className="flex-1 bg-bg">
-      {tab === "info" ? (
+      <ShowHero
+        show={show}
+        detail={tmdbDetail}
+        inLibrary={inLibrary}
+        totalWatched={totalWatched}
+        total={totalMain}
+        onOpenStatus={() => setStatusOpen(true)}
+      />
+      {!inLibrary ? (
+        <View className="px-4 pt-4">
+          <Button
+            label={addShow.isPending ? "Adding…" : "Add to library"}
+            icon="add"
+            onPress={onAdd}
+            disabled={addShow.isPending || !show}
+          />
+        </View>
+      ) : null}
+
+      <SwipeTabs
+        tabs={SHOW_TABS}
+        value={tab}
+        onChange={setTab}
+        tabBarClassName="mt-4"
+      >
         <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-          {header}
           {detailLoading && !tmdbDetail ? (
             <Loading label="Loading info…" />
           ) : (
@@ -351,9 +322,8 @@ export default function ShowDetailScreen() {
             </View>
           )}
         </ScrollView>
-      ) : (
+
         <ShowEpisodesTab
-          ListHeaderComponent={header}
           sections={sections}
           episodes={episodes}
           inLibrary={inLibrary}
@@ -386,7 +356,7 @@ export default function ShowDetailScreen() {
               ))
           }
         />
-      )}
+      </SwipeTabs>
 
       {inLibrary && show ? (
         <ShowStatusSheet

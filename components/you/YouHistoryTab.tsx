@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, SectionList, Text, View } from "react-native";
 import {
@@ -16,25 +16,8 @@ import {
   historyDayOffset,
 } from "../../lib/dates";
 import { useWatchHistory } from "../../lib/queries";
+import { useTapGuard } from "../../lib/tapGuard";
 import type { WatchHistoryItem } from "../../lib/types";
-
-/** Ignore taps that were actually a horizontal swipe across the row. */
-function useTapGuard(threshold = 12) {
-  const start = useRef({ x: 0, y: 0 });
-  return {
-    onPressIn: (e: { nativeEvent: { pageX: number; pageY: number } }) => {
-      start.current = {
-        x: e.nativeEvent.pageX,
-        y: e.nativeEvent.pageY,
-      };
-    },
-    wasTap: (e: { nativeEvent: { pageX: number; pageY: number } }) => {
-      const dx = Math.abs(e.nativeEvent.pageX - start.current.x);
-      const dy = Math.abs(e.nativeEvent.pageY - start.current.y);
-      return dx < threshold && dy < threshold;
-    },
-  };
-}
 
 export function YouHistoryTab() {
   const { t } = useTranslation();

@@ -5,3 +5,4 @@ export { EpisodeProgressCard } from "./EpisodeProgressCard";
 export { Button } from "./Button";
 export { EmptyState, Loading, ErrorState, errorMessage } from "./States";
 export { BottomSheet, ScreenTitle } from "./BottomSheet";
+export { SwipeTabBar, SwipeTabs, type SwipeTab } from "./SwipeTabs";

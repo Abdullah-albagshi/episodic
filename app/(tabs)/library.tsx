@@ -17,12 +17,127 @@ import {
   errorMessage,
   Loading,
   ScreenTitle,
+  SwipeTabs,
 } from "../../components/ui";
 import { useLibraryOverview, useToggleEpisode } from "../../lib/queries";
-import { useAppStore, type LibraryFilter } from "../../lib/store";
+import { useAppStore, type LibraryFilter, type LibraryView } from "../../lib/store";
 import { SHOW_STATUSES, type LibraryEntry } from "../../lib/types";
 
 const FILTERS: LibraryFilter[] = ["all", ...SHOW_STATUSES];
+const MEDIA_TABS = [
+  { key: "all" as const, label: "All" },
+  { key: "tv" as const, label: "TV" },
+  { key: "movie" as const, label: "Movies" },
+];
+type MediaFilter = (typeof MEDIA_TABS)[number]["key"];
+
+function LibraryList({
+  entries,
+  allEntries,
+  view,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  onOpen,
+  onMarkWatched,
+  markingShowId,
+}: {
+  entries: LibraryEntry[];
+  allEntries: LibraryEntry[];
+  view: LibraryView;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  onRetry: () => void;
+  onOpen: (entry: LibraryEntry) => void;
+  onMarkWatched: (entry: LibraryEntry) => void;
+  markingShowId: number | null;
+}) {
+  const { t } = useTranslation();
+  const numColumns = view === "grid" ? 4 : 1;
+
+  if (isError && allEntries.length === 0) {
+    return (
+      <ErrorState
+        title={t("library.errorTitle")}
+        message={errorMessage(error)}
+        onRetry={onRetry}
+        retryLabel={t("common.tryAgain")}
+      />
+    );
+  }
+  if (isLoading) return <Loading />;
+  if (entries.length === 0) {
+    return (
+      <EmptyState
+        icon="albums-outline"
+        title={
+          allEntries.length === 0
+            ? t("library.emptyTitle")
+            : t("library.emptyFilterTitle")
+        }
+        subtitle={
+          allEntries.length === 0
+            ? t("library.emptySubtitle")
+            : t("library.emptyFilterSubtitle")
+        }
+      />
+    );
+  }
+
+  return (
+    <FlatList
+      key={view}
+      data={entries}
+      numColumns={numColumns}
+      keyExtractor={(e) => `${e.show.media_type ?? "tv"}:${e.show.id}`}
+      columnWrapperStyle={
+        view === "grid" ? { gap: 12, paddingHorizontal: 16 } : undefined
+      }
+      contentContainerStyle={
+        view === "grid"
+          ? { gap: 16, paddingVertical: 8 }
+          : view === "list"
+            ? { padding: 16, gap: 12 }
+            : { paddingHorizontal: 16, paddingVertical: 4 }
+      }
+      renderItem={({ item: entry }) => {
+        switch (view) {
+          case "grid":
+            return (
+              <LibraryGridItem
+                entry={entry}
+                onPress={() => onOpen(entry)}
+              />
+            );
+          case "compact":
+            return (
+              <LibraryCompactRow
+                entry={entry}
+                onPress={() => onOpen(entry)}
+              />
+            );
+          case "list":
+          default:
+            return (
+              <EpisodeProgressCard
+                show={entry.show}
+                next={entry.next}
+                watchedCount={entry.watchedCount}
+                totalCount={entry.totalCount}
+                onPress={() => onOpen(entry)}
+                onMarkWatched={
+                  entry.next ? () => onMarkWatched(entry) : undefined
+                }
+                marking={markingShowId === entry.show.id}
+              />
+            );
+        }
+      }}
+    />
+  );
+}
 
 export default function LibraryScreen() {
   const { t } = useTranslation();
@@ -40,6 +155,7 @@ export default function LibraryScreen() {
   const view = useAppStore((s) => s.libraryView);
   const setView = useAppStore((s) => s.setLibraryView);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
 
   const FILTER_LABELS: Record<LibraryFilter, string> = useMemo(
     () => ({
@@ -53,21 +169,19 @@ export default function LibraryScreen() {
     [t]
   );
 
-  const [mediaFilter, setMediaFilter] = useState<"all" | "tv" | "movie">("all");
-
-  const filtered = useMemo(() => {
+  const byStatus = useMemo(() => {
     if (!entries) return [];
-    let list =
-      filter === "all"
-        ? entries
-        : entries.filter((e) => e.show.status === filter);
-    if (mediaFilter !== "all") {
-      list = list.filter(
-        (e) => (e.show.media_type ?? "tv") === mediaFilter
-      );
-    }
-    return list;
-  }, [entries, filter, mediaFilter]);
+    return filter === "all"
+      ? entries
+      : entries.filter((e) => e.show.status === filter);
+  }, [entries, filter]);
+
+  const pages = useMemo(() => {
+    const all = byStatus;
+    const tv = byStatus.filter((e) => (e.show.media_type ?? "tv") === "tv");
+    const movie = byStatus.filter((e) => e.show.media_type === "movie");
+    return { all, tv, movie };
+  }, [byStatus]);
 
   const counts = useMemo(() => {
     const c: Record<LibraryFilter, number> = {
@@ -100,34 +214,20 @@ export default function LibraryScreen() {
     });
   }
 
-  function renderItem(entry: LibraryEntry) {
-    switch (view) {
-      case "grid":
-        return <LibraryGridItem entry={entry} onPress={() => openShow(entry)} />;
-      case "compact":
-        return (
-          <LibraryCompactRow entry={entry} onPress={() => openShow(entry)} />
-        );
-      case "list":
-      default:
-        return (
-          <EpisodeProgressCard
-            show={entry.show}
-            next={entry.next}
-            watchedCount={entry.watchedCount}
-            totalCount={entry.totalCount}
-            onPress={() => openShow(entry)}
-            onMarkWatched={entry.next ? () => markWatched(entry) : undefined}
-            marking={
-              toggleEpisode.isPending &&
-              toggleEpisode.variables?.showId === entry.show.id
-            }
-          />
-        );
-    }
-  }
-
-  const numColumns = view === "grid" ? 4 : 1;
+  const listProps = {
+    allEntries: entries ?? [],
+    view,
+    isLoading: isLoading || !entries,
+    isError,
+    error,
+    onRetry: () => refetch(),
+    onOpen: openShow,
+    onMarkWatched: markWatched,
+    markingShowId:
+      toggleEpisode.isPending && toggleEpisode.variables
+        ? toggleEpisode.variables.showId
+        : null,
+  } as const;
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
@@ -145,31 +245,7 @@ export default function LibraryScreen() {
           </Text>
           <Ionicons name="chevron-down" size={14} color="#9a9ab0" />
         </Pressable>
-        <View className="flex-row items-center gap-2">
-          <View className="flex-row bg-surface rounded-full p-0.5">
-            {(["all", "tv", "movie"] as const).map((m) => {
-              const active = mediaFilter === m;
-              return (
-                <Pressable
-                  key={m}
-                  onPress={() => setMediaFilter(m)}
-                  className={`px-2.5 h-8 rounded-full items-center justify-center ${
-                    active ? "bg-primary" : ""
-                  }`}
-                >
-                  <Text
-                    className={`text-xs font-semibold ${
-                      active ? "text-white" : "text-muted"
-                    }`}
-                  >
-                    {m === "all" ? "All" : m === "tv" ? "TV" : "Movies"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <LibraryOptionsMenu value={view} onChange={setView} />
-        </View>
+        <LibraryOptionsMenu value={view} onChange={setView} />
       </View>
 
       <LibraryFilterDrawer
@@ -182,49 +258,17 @@ export default function LibraryScreen() {
         onChange={setFilter}
       />
 
-      {isError && !entries ? (
-        <ErrorState
-          title={t("library.errorTitle")}
-          message={errorMessage(error)}
-          onRetry={() => refetch()}
-          retryLabel={t("common.tryAgain")}
-        />
-      ) : isLoading || !entries ? (
-        <Loading />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon="albums-outline"
-          title={
-            entries.length === 0
-              ? t("library.emptyTitle")
-              : t("library.emptyFilterTitle")
-          }
-          subtitle={
-            entries.length === 0
-              ? t("library.emptySubtitle")
-              : t("library.emptyFilterSubtitle")
-          }
-        />
-      ) : (
-        <FlatList
-          // Remount when column count changes; FlatList can't switch numColumns live.
-          key={view}
-          data={filtered}
-          numColumns={numColumns}
-          keyExtractor={(e) => String(e.show.id)}
-          columnWrapperStyle={
-            view === "grid" ? { gap: 12, paddingHorizontal: 16 } : undefined
-          }
-          contentContainerStyle={
-            view === "grid"
-              ? { gap: 16, paddingVertical: 8 }
-              : view === "list"
-              ? { padding: 16, gap: 12 }
-              : { paddingHorizontal: 16, paddingVertical: 4 }
-          }
-          renderItem={({ item }) => renderItem(item)}
-        />
-      )}
+      <SwipeTabs
+        tabs={MEDIA_TABS}
+        value={mediaFilter}
+        onChange={setMediaFilter}
+        variant="segmented"
+        tabBarClassName="px-4 mb-2"
+      >
+        <LibraryList entries={pages.all} {...listProps} />
+        <LibraryList entries={pages.tv} {...listProps} />
+        <LibraryList entries={pages.movie} {...listProps} />
+      </SwipeTabs>
     </SafeAreaView>
   );
 }
