@@ -68,6 +68,14 @@ export interface ContinueItem {
   lastActivityAt: number;
 }
 
+/** One row in the global watch history (episode or movie). */
+export interface WatchHistoryItem {
+  media_type: MediaType;
+  show: Show;
+  episode: Episode | null;
+  watched_at: number;
+}
+
 export interface ExportBundle {
   app: "episodic";
   version: 1 | 2;

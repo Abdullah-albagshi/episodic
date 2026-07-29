@@ -6,6 +6,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { I18nextProvider } from "react-i18next";
 import { ErrorState, errorMessage, Loading } from "../components/ui";
 import { initDb } from "../lib/db";
@@ -66,26 +67,28 @@ export default function RootLayout() {
   }
 
   return (
-    <I18nextProvider i18n={i18n}>
-      <QueryClientProvider client={queryClient}>
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerStyle: { backgroundColor: "#0b0b12" },
-            headerTintColor: "#f2f2f7",
-            headerShadowVisible: false,
-            contentStyle: { backgroundColor: "#0b0b12" },
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="show/[id]" options={{ title: "" }} />
-          <Stack.Screen name="movie/[id]" options={{ title: "" }} />
-          <Stack.Screen
-            name="import"
-            options={{ title: "Import from TV Time", presentation: "modal" }}
-          />
-        </Stack>
-      </QueryClientProvider>
-    </I18nextProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <I18nextProvider i18n={i18n}>
+        <QueryClientProvider client={queryClient}>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: "#0b0b12" },
+              headerTintColor: "#f2f2f7",
+              headerShadowVisible: false,
+              contentStyle: { backgroundColor: "#0b0b12" },
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="show/[id]" options={{ title: "" }} />
+            <Stack.Screen name="movie/[id]" options={{ title: "" }} />
+            <Stack.Screen
+              name="import"
+              options={{ title: "Import from TV Time", presentation: "modal" }}
+            />
+          </Stack>
+        </QueryClientProvider>
+      </I18nextProvider>
+    </GestureHandlerRootView>
   );
 }

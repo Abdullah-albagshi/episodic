@@ -35,6 +35,7 @@ export const qk = {
   libraryOverview: ["library-overview"] as const,
   upcoming: ["upcoming"] as const,
   stats: ["stats"] as const,
+  watchHistory: ["watch-history"] as const,
   tmdbSearch: (query: string, mediaType: string = "tv") =>
     ["tmdb", "search", mediaType, query] as const,
   tmdbShow: (id: number) => ["tmdb", "show", id] as const,
@@ -53,6 +54,7 @@ function invalidateLibrary(client: QueryClient, showId?: number) {
   client.invalidateQueries({ queryKey: qk.libraryOverview });
   client.invalidateQueries({ queryKey: qk.upcoming });
   client.invalidateQueries({ queryKey: qk.stats });
+  client.invalidateQueries({ queryKey: qk.watchHistory });
   if (showId != null) {
     client.invalidateQueries({ queryKey: qk.show(showId) });
     client.invalidateQueries({ queryKey: qk.episodes(showId) });
@@ -110,6 +112,13 @@ export function useStats() {
   return useQuery({
     queryKey: qk.stats,
     queryFn: db.getProfileStats,
+  });
+}
+
+export function useWatchHistory() {
+  return useQuery({
+    queryKey: qk.watchHistory,
+    queryFn: db.getWatchHistory,
   });
 }
 

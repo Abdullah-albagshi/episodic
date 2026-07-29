@@ -9,6 +9,7 @@ import type {
   ProfileStats,
   Show,
   ShowStatus,
+  WatchHistoryItem,
 } from "./types";
 
 /**
@@ -719,6 +720,44 @@ export async function getLibraryOverview(): Promise<LibraryEntry[]> {
     out.push({ show, next, watchedCount, totalCount });
   }
   return out;
+}
+
+/**
+ * Every watched episode (and watched movie) newest-first for the History tab.
+ */
+export async function getWatchHistory(): Promise<WatchHistoryItem[]> {
+  const shows = await backend.getShows();
+  const showById = new Map<number, Show>();
+  for (const s of shows) {
+    if (s.media_type === "tv") showById.set(s.id, s);
+  }
+
+  const items: WatchHistoryItem[] = [];
+  const episodes = await backend.allEpisodes();
+  for (const e of episodes) {
+    if (e.watched_at == null) continue;
+    const show = showById.get(e.show_id);
+    if (!show) continue;
+    items.push({
+      media_type: "tv",
+      show,
+      episode: e,
+      watched_at: e.watched_at,
+    });
+  }
+
+  for (const s of shows) {
+    if (s.media_type !== "movie" || s.watched_at == null) continue;
+    items.push({
+      media_type: "movie",
+      show: s,
+      episode: null,
+      watched_at: s.watched_at,
+    });
+  }
+
+  items.sort((a, b) => b.watched_at - a.watched_at);
+  return items;
 }
 
 /**
