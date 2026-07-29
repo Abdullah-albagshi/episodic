@@ -131,8 +131,15 @@ function createSqliteBackend(): Backend {
       );
       const colNames = new Set(showCols.map((c) => c.name));
       if (!colNames.has("media_type")) {
+        // Old table may or may not already have `source` (added in an earlier
+        // migration). Build the SELECT list accordingly so we never reference
+        // a missing column.
+        const sourceExpr = colNames.has("source")
+          ? "COALESCE(source, 'manual')"
+          : "'manual'";
         await d.execAsync(`
-          CREATE TABLE IF NOT EXISTS shows_v2 (
+          DROP TABLE IF EXISTS shows_v2;
+          CREATE TABLE shows_v2 (
             media_type TEXT NOT NULL DEFAULT 'tv',
             id INTEGER NOT NULL,
             title TEXT NOT NULL,
@@ -148,7 +155,7 @@ function createSqliteBackend(): Backend {
           INSERT OR IGNORE INTO shows_v2
             (media_type, id, title, poster_path, overview, first_air_date, status, added_at, source, watched_at)
           SELECT 'tv', id, title, poster_path, overview, first_air_date, status, added_at,
-            COALESCE(source, 'manual'), NULL
+            ${sourceExpr}, NULL
           FROM shows;
           DROP TABLE shows;
           ALTER TABLE shows_v2 RENAME TO shows;

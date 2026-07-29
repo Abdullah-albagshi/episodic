@@ -22,6 +22,7 @@ import {
   ScreenTitle,
 } from "../../components/ui";
 import type { AppLocale } from "../../lib/i18n";
+import { formatMonthYear } from "../../lib/dates";
 import {
   useClearAll,
   useExportBackup,
@@ -88,13 +89,6 @@ function TimeSegment({ value, unit }: { value: number; unit: string }) {
       </Text>
     </View>
   );
-}
-
-function formatMemberSince(ts: number): string {
-  return new Date(ts).toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
 }
 
 export default function YouScreen() {
@@ -478,7 +472,7 @@ export default function YouScreen() {
             {stats!.memberSince ? (
               <Text className="text-muted text-center text-xs">
                 {t("you.trackingSince", {
-                  date: formatMemberSince(stats!.memberSince),
+                  date: formatMonthYear(stats!.memberSince),
                 })}
               </Text>
             ) : null}

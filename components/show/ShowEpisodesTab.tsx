@@ -7,6 +7,8 @@ import {
   Text,
   View,
 } from "react-native";
+import { formatDateYmd } from "../../lib/dates";
+import type { Episode } from "../../lib/types";
 import {
   EmptyState,
   EpisodeStill,
@@ -14,7 +16,6 @@ import {
   errorMessage,
   Loading,
 } from "../ui";
-import type { Episode } from "../../lib/types";
 
 export interface EpisodeSection {
   season: number;
@@ -22,15 +23,6 @@ export interface EpisodeSection {
   watched: number;
   total: number;
   collapsed: boolean;
-}
-
-function formatWatchedDate(ms: number): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 export function ShowEpisodesTab({
@@ -116,7 +108,7 @@ export function ShowEpisodesTab({
       renderItem={({ item }) => {
         const watched = item.watched_at != null;
         const watchedDate =
-          item.watched_at != null ? formatWatchedDate(item.watched_at) : null;
+          item.watched_at != null ? formatDateYmd(item.watched_at) : null;
         const pending = episodePending(item);
         return (
           <Pressable

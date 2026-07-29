@@ -11,6 +11,7 @@ import {
   Poster,
   ScreenTitle,
 } from "../../components/ui";
+import { formatShortWeekdayDate } from "../../lib/dates";
 import { useUpcoming } from "../../lib/queries";
 import type { Episode, Show } from "../../lib/types";
 
@@ -59,14 +60,6 @@ function bucketFor(airDate: string, now: Date): Bucket | null {
   if (day < endOfMonth) return "This month";
   if (day < endOfYear) return "Later this year";
   return "Later";
-}
-
-function formatAir(date: string): string {
-  return new Date(date + "T00:00:00").toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 export default function UpcomingScreen() {
@@ -146,7 +139,7 @@ export default function UpcomingScreen() {
                   {item.episode.title ? ` — ${item.episode.title}` : ""}
                 </Text>
                 <Text className="text-muted text-xs mt-1">
-                  {formatAir(item.episode.air_date!)}
+                  {formatShortWeekdayDate(item.episode.air_date!)}
                 </Text>
               </View>
             </Pressable>
