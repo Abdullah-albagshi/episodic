@@ -1,3 +1,55 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --ep-bg: #0b0b12;
+  --ep-surface: #15151f;
+  --ep-surface2: #1e1e2b;
+  --ep-border: #2a2a3a;
+  --ep-primary: #7c5cff;
+  --ep-muted: #9a9ab0;
+  --ep-text: #f2f2f7;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  background-color: var(--ep-bg);
+  color: var(--ep-text);
+}
+
+/* Thin scrollbars that match the dark surface / primary palette (web). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ep-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--ep-border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ep-muted);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--ep-primary);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

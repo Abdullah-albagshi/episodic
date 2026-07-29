@@ -62,12 +62,12 @@ export function SwipeTabBar<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             className={`mr-5 pb-3 border-b-2 ${
-              active ? "border-text" : "border-transparent"
+              active ? "border-primary" : "border-transparent"
             }`}
           >
             <Text
               className={`font-semibold ${
-                active ? "text-text" : "text-muted"
+                active ? "text-primary" : "text-muted"
               }`}
             >
               {tab.label}

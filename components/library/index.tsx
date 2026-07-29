@@ -52,7 +52,7 @@ export function LibraryOptionsMenu({
         ref={btnRef}
         onPress={openMenu}
         hitSlop={8}
-        className="w-9 h-9 rounded-full bg-surface items-center justify-center active:opacity-70"
+        className="items-center justify-center rounded-full w-9 h-9 bg-surface active:opacity-70"
       >
         <Ionicons name="ellipsis-horizontal" size={18} color="#f2f2f7" />
       </Pressable>
@@ -66,9 +66,9 @@ export function LibraryOptionsMenu({
         <Pressable className="flex-1" onPress={() => setOpen(false)}>
           <View
             style={{ position: "absolute", top: anchor.top, right: anchor.right }}
-            className="w-64 bg-surface rounded-2xl p-3 border border-border"
+            className="w-64 p-3 border bg-surface rounded-2xl border-border"
           >
-            <Text className="text-muted text-xs font-semibold uppercase tracking-wide mb-2">
+            <Text className="mb-2 text-xs font-semibold tracking-wide uppercase text-muted">
               View
             </Text>
             <View className="flex-row flex-wrap gap-2">
@@ -151,7 +151,7 @@ export function LibraryFilterDrawer({
                 {labels[f]}
               </Text>
               <View className="flex-row items-center gap-3">
-                <Text className="text-muted text-xs">{counts[f]}</Text>
+                <Text className="text-xs text-muted">{counts[f]}</Text>
                 {active ? (
                   <Ionicons name="checkmark" size={18} color="#7c5cff" />
                 ) : null}
@@ -223,7 +223,7 @@ export function LibraryCompactRow({
         className="w-9 h-[54px] rounded-md"
       />
       <View className="flex-1 ml-3">
-        <Text numberOfLines={1} className="text-text font-medium">
+        <Text numberOfLines={1} className="font-medium text-text">
           {show.title}
         </Text>
         <Text numberOfLines={1} className="text-muted text-xs mt-0.5">
